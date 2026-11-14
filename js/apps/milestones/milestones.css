@@ -1,0 +1,45 @@
+/* Milestones (uses the shared .ap-* app styles) */
+.ms-card{display:flex;flex-direction:column;gap:10px;padding:14px 16px;width:100%;border:0;background:transparent;text-align:left;color:inherit}
+button.ms-card:hover{background:var(--accent-soft)}
+.ms-card + .ms-card{border-top:1px solid var(--line)}
+.ms-top{display:flex;align-items:center;gap:8px;min-width:0}
+.ms-top .t{flex:1;min-width:0;font-weight:700;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-sub{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);min-width:0;flex-wrap:wrap}
+.ms-next{font-size:13.5px;display:flex;gap:6px;align-items:center;min-width:0}
+.ms-next b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-next .ic{width:15px;height:15px;color:var(--muted);flex:none}
+.ms-meter{display:flex;align-items:center;gap:10px}
+.ms-meter .ap-bar-meter{flex:1;height:8px}
+.ms-meter span{font-size:12px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* detail */
+.ms-head{display:flex;flex-direction:column;gap:8px}
+.ms-head h1{font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15}
+.ms-actions{display:flex;gap:8px;flex-wrap:wrap}
+.ms-actions .pill-btn{display:inline-flex;align-items:center;gap:6px}
+.ms-actions .pill-btn .ic{width:16px;height:16px}
+.ms-step .s{white-space:normal}
+.ms-step input[type="datetime-local"]{border:1px solid var(--line);background:var(--board);border-radius:8px;padding:4px 6px;font-size:13px;color:var(--ink)}
+.ms-step .est{flex:none;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ms-del{opacity:.55}
+.ms-del:hover{opacity:1;color:var(--bad)}
+.ms-addstep{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+.ms-addstep input{flex:1;min-width:0;border:0;background:transparent;font-size:15px;outline:none}
+
+/* new-milestone sheet */
+.ms-tpls{display:flex;gap:6px;flex-wrap:wrap}
+.ms-tpls button{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:6px 12px;font-size:13px;font-weight:600;color:var(--ink)}
+.ms-tpls button[aria-pressed="true"]{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff}
+.ms-preview{display:flex;flex-direction:column;gap:2px;border-radius:12px;background:var(--panel);border:1px solid var(--line);padding:8px 10px;max-height:200px;overflow:auto}
+.ms-preview div{display:flex;gap:10px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink)}
+.ms-preview div span{flex:none;width:118px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ms-sheet textarea.field{min-height:84px;resize:vertical;font-family:inherit}
+
+/* widget */
+.w-ms{display:flex;flex-direction:column;gap:3px;min-width:0}
+.w-ms b{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.w-ms span{font-size:12px;color:var(--on-wall-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.w-ms .ap-bar-meter{height:6px;margin-top:3px}
+.ms-next .ap-hint{white-space:nowrap;flex:none}
+.ms-next b{min-width:0;flex:0 1 auto}
+@media (max-width:480px){.ms-sheet .two{grid-template-columns:1fr}}
