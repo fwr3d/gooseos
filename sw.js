@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update; installed copies then show
 // "An update is ready" and reload into the new version.
-const VERSION = "v7";
+const VERSION = "v9";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 
@@ -15,6 +15,11 @@ const FILES = [
   "js/sync.js",
   "js/config.js",
   "js/icons.js",
+  "js/capture.js",
+  "js/apps/deadlines/deadlines.js",
+  "js/apps/deadlines/deadlines.css",
+  "js/apps/deadlines/parse.js",
+  "js/apps/deadlines/ics.js",
   "js/apps/index.js",
   "js/apps/whiteboard/whiteboard.js",
   "js/apps/whiteboard/whiteboard.css",
@@ -66,6 +71,7 @@ self.addEventListener("fetch", event => {
   }
 
   if (url.origin !== self.location.origin) return; // sync requests etc. go straight to the network
+  if (url.pathname.startsWith("/api/")) return;    // Brightspace relay: always live, never saved
 
   // Opening the app: always serve the home screen page.
   if (req.mode === "navigate") {

@@ -8,7 +8,9 @@
 //     widget?(el, ctx) }       // optional home-screen widget
 // and add it to the list below.
 import whiteboard from "./whiteboard/whiteboard.js";
+import deadlines from "./deadlines/deadlines.js";
 
 export default [
   whiteboard,
+  deadlines,
 ];

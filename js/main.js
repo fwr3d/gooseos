@@ -4,6 +4,7 @@ import apps from "./apps/index.js";
 import * as store from "./store.js";
 import * as sync from "./sync.js";
 import { svg } from "./icons.js";
+import * as capture from "./capture.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -62,7 +63,7 @@ async function renderWidgets() {
   for (const a of apps) {
     if (!a.widget) continue;
     const el = document.createElement("button");
-    el.className = "widget glass"; el.dataset.open = a.id; el.setAttribute("aria-label", `Open ${a.name}`);
+    el.className = "widget glass" + (a.wideWidget ? " wide" : ""); el.dataset.open = a.id; el.setAttribute("aria-label", `Open ${a.name}`);
     host.appendChild(el);
     try { await a.widget(el, { store, svg }); } catch (e) { console.error(e); el.remove(); }
   }
@@ -229,6 +230,12 @@ function friendly(err) {
   if (!navigator.onLine) return "You're offline. Connect to the internet to sign in.";
   return m || "Something went wrong. Try again.";
 }
+
+/* ---------- quick capture ---------- */
+capture.init({ toast });
+const isTouch = matchMedia("(pointer: coarse)").matches;
+$("#quick").innerHTML = `${svg("plus")}<span>Quick add a deadline</span>${isTouch ? "" : `<kbd>Ctrl</kbd><kbd>Space</kbd>`}`;
+$("#quick").onclick = () => capture.open();
 
 /* ---------- start ---------- */
 tick(); setInterval(tick, 10000);
