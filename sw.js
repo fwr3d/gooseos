@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update; installed copies then show
 // "An update is ready" and reload into the new version.
-const VERSION = "v9";
+const VERSION = "v11";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 
@@ -16,10 +16,23 @@ const FILES = [
   "js/config.js",
   "js/icons.js",
   "js/capture.js",
+  "js/agenda.js",
+  "js/notify.js",
   "js/apps/deadlines/deadlines.js",
   "js/apps/deadlines/deadlines.css",
   "js/apps/deadlines/parse.js",
   "js/apps/deadlines/ics.js",
+  "js/apps/milestones/milestones.js",
+  "js/apps/milestones/milestones.css",
+  "js/apps/milestones/plan.js",
+  "js/apps/schedule/schedule.js",
+  "js/apps/schedule/schedule.css",
+  "js/apps/reminders/reminders.js",
+  "js/apps/reminders/reminders.css",
+  "js/apps/today/today.js",
+  "js/apps/today/today.css",
+  "js/apps/events/events.js",
+  "js/apps/events/events.css",
   "js/apps/index.js",
   "js/apps/whiteboard/whiteboard.js",
   "js/apps/whiteboard/whiteboard.css",
@@ -52,6 +65,24 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("message", event => {
   if (event.data === "skipWaiting") self.skipWaiting();
+});
+
+// Notification buttons (Done, Snooze) and clicks: hand them to an open GooseOS
+// window, or open one. js/notify.js picks them up.
+self.addEventListener("notificationclick", event => {
+  const n = event.notification, data = n.data || {}, action = event.action || "open";
+  n.close();
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (wins.length) {
+      const w = wins[0];
+      w.postMessage({ type: "notification", action, data });
+      if (action === "open" && w.focus) await w.focus();
+      return;
+    }
+    const q = action === "open" ? "" : `?na=${encodeURIComponent(action)}&nk=${encodeURIComponent(data.key || "")}`;
+    await self.clients.openWindow(new URL(`./${q}${action === "open" ? data.open || "" : ""}`, self.registration.scope).href);
+  })());
 });
 
 self.addEventListener("fetch", event => {

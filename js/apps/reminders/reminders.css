@@ -1,0 +1,9 @@
+/* Nag Reminders */
+.rm-perm{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))!important;background:color-mix(in srgb,var(--warn) 8%,var(--panel))!important}
+.rm-perm span{color:var(--muted);font-size:13.5px;line-height:1.5}
+.rm-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:360px}
+.rm-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.rm-grid .field{padding:8px 10px;font-size:15px}
+.rm-toggle{display:flex;align-items:center;gap:8px;font-size:14px}
+.rm-toggle input{width:18px;height:18px;accent-color:var(--accent-strong)}
+.ap-sec>h3 .ap-spacer{flex:1}

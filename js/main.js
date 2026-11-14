@@ -39,7 +39,7 @@ async function iconHtml(a) {
   return `<button class="app-ic" data-open="${a.id}" aria-label="${esc(a.name)}"><span class="sq" style="${tileStyle(a)}">${svg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span><span class="lb">${esc(a.name)}</span></button>`;
 }
 async function renderIcons() {
-  const list = allIcons();
+  const list = allIcons().filter(a => !a.hidden);
   $("#apps").innerHTML = (await Promise.all(list.filter(a => !a.dock).map(iconHtml))).join("");
   $("#dock").innerHTML = (await Promise.all(list.filter(a => a.dock).map(iconHtml))).join("");
 }
@@ -60,11 +60,13 @@ function gooseWidget() {
 async function renderWidgets() {
   const host = $("#widgets");
   host.innerHTML = gooseWidget();
+  const goose = host.firstElementChild;
+  // topWidget apps (Today) sit above the Goose widget; hidden apps get no widget
   for (const a of apps) {
-    if (!a.widget) continue;
+    if (!a.widget || a.hidden) continue;
     const el = document.createElement("button");
     el.className = "widget glass" + (a.wideWidget ? " wide" : ""); el.dataset.open = a.id; el.setAttribute("aria-label", `Open ${a.name}`);
-    host.appendChild(el);
+    if (a.topWidget) host.insertBefore(el, goose); else host.appendChild(el);
     try { await a.widget(el, { store, svg }); } catch (e) { console.error(e); el.remove(); }
   }
 }
@@ -79,7 +81,10 @@ const views = new Map();
 let current = "";
 let openedFromHome = false;
 
-async function show(id) {
+// "#events/abc" opens the events app and hands "abc" to its show(arg)
+async function show(hash) {
+  const [id, ...rest] = hash.split("/");
+  const arg = rest.join("/");
   if (id === "settings") { history.replaceState(null, "", location.pathname + location.search); openSettings(); return; }
   const app = apps.find(a => a.id === id);
   if (current && current !== id) hideCurrent();
@@ -92,7 +97,7 @@ async function show(id) {
   }
   current = id;
   $("#home").hidden = true; el.hidden = false;
-  if (app.show) app.show();
+  if (app.show) app.show(arg);
 }
 function hideCurrent() {
   const app = apps.find(a => a.id === current), el = views.get(current);
@@ -164,6 +169,17 @@ $("#sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeS
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheet").hidden) closeSheet(); });
 
 function openSettings() { drawSettings(); openSheet(); }
+// Hidden apps stay off the home screen; this is the one place to open them.
+function hiddenRows() {
+  const hid = apps.filter(a => a.hidden);
+  if (!hid.length) return "";
+  return `<div class="group-h">Hidden apps</div><div class="group">${hid.map(a =>
+    `<button class="row row-btn" data-hidden-open="${a.id}"><span class="tile-ic" style="${tileStyle(a)}">${svg(a.icon)}</span><div class="grow"><div class="t">${esc(a.name)}</div><div class="s">Not on your home screen</div></div></button>`).join("")}</div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-hidden-open]");
+  if (b) { closeSheet(); openedFromHome = true; location.hash = b.dataset.hiddenOpen; }
+});
 function drawSettings() {
   $("#sheet-title").textContent = "Settings";
   const s = syncState, signedIn = s.email && s.status !== "signed-out";
@@ -179,6 +195,7 @@ function drawSettings() {
   $("#sheet-body").innerHTML = `
     <div class="group-h">Sync</div><div class="group">${syncRow}</div>
     ${installRow}
+    ${hiddenRows()}
     <div class="group-h">About</div>
     <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide.</div></div></div></div>`;
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
@@ -242,6 +259,8 @@ tick(); setInterval(tick, 10000);
 setInterval(() => { if (!current) renderGooseWidget(); }, 5 * 60000);
 store.askPersistent();
 route();
+// background jobs (Reminders' scheduler) run whether or not their view is open
+for (const a of apps) if (a.start) { try { a.start({ store, toast, svg }); } catch (e) { console.error(e); } }
 sync.onStatus(s => {
   syncState = s;
   if (!current) renderGooseWidget();

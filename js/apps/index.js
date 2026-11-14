@@ -3,14 +3,28 @@
 //   { id, name, icon,          // icon = a name from js/icons.js
 //     color: [from, to],       // icon tile gradient
 //     dock?: true,             // show in the dock instead of the grid
-//     mount(el, ctx), show?(), hide?(),
+//     mount(el, ctx), show?(arg), hide?(),   // arg = the part after "/" in "#app/arg"
 //     badge?() -> text|number, // little red bubble on the icon
-//     widget?(el, ctx) }       // optional home-screen widget
+//     widget?(el, ctx),        // optional home-screen widget
+//     wideWidget?, topWidget?, // full-width widget / widget above the Goose one
+//     hidden?: true,           // off the home screen; opened from Settings → Hidden apps
+//     start?(ctx),             // runs once at boot, for background jobs
+//     agenda?(), complete?(key) } // dated items for Reminders and Today (see js/agenda.js)
 // and add it to the list below.
 import whiteboard from "./whiteboard/whiteboard.js";
 import deadlines from "./deadlines/deadlines.js";
+import milestones from "./milestones/milestones.js";
+import schedule from "./schedule/schedule.js";
+import reminders from "./reminders/reminders.js";
+import today from "./today/today.js";
+import events from "./events/events.js";
 
 export default [
+  today,
   whiteboard,
   deadlines,
+  milestones,
+  schedule,
+  reminders,
+  events,
 ];

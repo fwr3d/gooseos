@@ -177,3 +177,80 @@ kbd{font-family:var(--f-ui);font-size:11px;font-weight:600;border:1px solid var(
 .chip{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 9px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--accent-soft);color:var(--ink)}
 .chip .ic{width:13px;height:13px}
 .chip.course{color:#fff}
+
+/* ---------- shared app view parts (any app can use these) ---------- */
+.ap{background:var(--wall-base)}
+.ap-bar{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:4px;
+  padding-top:calc(8px + env(safe-area-inset-top,0px));padding-bottom:8px;
+  padding-left:max(8px,env(safe-area-inset-left,0px));padding-right:max(8px,env(safe-area-inset-right,0px));
+  background:var(--glass-strong);border-bottom:1px solid var(--line);
+  -webkit-backdrop-filter:blur(24px) saturate(1.6);backdrop-filter:blur(24px) saturate(1.6)}
+.ap-home{display:flex;align-items:center;border:0;background:transparent;color:var(--accent);font-weight:600;font-size:15px;padding:6px 8px 6px 2px;border-radius:10px}
+.ap-home .ic{width:24px;height:24px}
+.ap-home:hover{background:var(--accent-soft)}
+.ap-title{font-weight:700;font-size:16px;padding:0 6px}
+.ap-spacer{flex:1}
+.ap-tabs{display:flex;gap:2px;background:var(--accent-soft);border-radius:99px;padding:3px}
+.ap-tabs button{border:0;background:transparent;border-radius:99px;padding:5px 12px;font-size:13px;font-weight:600;color:var(--muted)}
+.ap-tabs button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(16,22,38,.12)}
+.ap-scroll{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+.ap-body{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:18px;
+  padding-top:16px;padding-bottom:calc(40px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.ap-body.wide{max-width:1040px}
+.ap-card{border-radius:18px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.ap-card.pad{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.ap-sec{display:flex;flex-direction:column;gap:8px}
+.ap-sec>h3{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 4px}
+.ap-sec>h3 .n{font-weight:600;background:var(--accent-soft);color:var(--ink);border-radius:99px;padding:0 7px;font-size:11.5px;letter-spacing:0}
+.ap-sec.bad>h3{color:var(--bad)}
+.ap-row{display:flex;align-items:center;gap:10px;padding:11px 12px;min-height:54px;min-width:0}
+.ap-row + .ap-row{border-top:1px solid var(--line)}
+.ap-row .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ap-row .t{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-row .s{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-row.done .t{text-decoration:line-through;color:var(--muted)}
+button.ap-row{width:100%;border:0;background:transparent;text-align:left;color:inherit}
+button.ap-row:hover{background:var(--accent-soft)}
+.ap-check{width:26px;height:26px;flex:none;border-radius:50%;border:2px solid var(--line);background:transparent;display:grid;place-items:center;color:transparent;padding:0}
+.ap-check:hover{border-color:var(--good)}
+.ap-check .ic{width:15px;height:15px;stroke-width:3}
+.ap-row.done .ap-check{background:var(--good);border-color:var(--good);color:#fff}
+.ap-pill{flex:none;font-size:12px;font-weight:700;padding:3px 8px;border-radius:99px;background:var(--accent-soft);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ap-pill.bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.ap-pill.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.ap-pill.good{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
+.ap-empty{text-align:center;padding:30px 16px;color:var(--muted)}
+.ap-empty b{display:block;font-size:17px;color:var(--ink);margin-bottom:4px}
+.ap-input{display:flex;gap:8px;align-items:center;padding:10px;border-radius:18px;background:var(--panel);border:1px solid var(--line);box-shadow:var(--glass-shadow)}
+.ap-input input{flex:1;min-width:0;border:0;background:transparent;font-size:16px;padding:6px 4px;outline:none}
+.ap-input .ic{color:var(--muted)}
+.ap-hint{font-size:12.5px;color:var(--muted);padding:0 4px}
+.ap-err{color:var(--bad);font-size:13px}
+.ap-swatch{width:10px;height:10px;border-radius:50%;flex:none}
+.ap-bar-meter{height:10px;border-radius:99px;background:var(--accent-soft);overflow:hidden}
+.ap-bar-meter i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
+
+/* edit sheets inside apps */
+.ap-back{position:fixed;inset:0;z-index:30;background:rgba(6,10,20,.38);display:flex;align-items:flex-end;justify-content:center}
+@media (min-width:640px){.ap-back{align-items:center}}
+.ap-sheet{background:var(--glass-strong);border:1px solid var(--glass-line);width:min(480px,100%);max-height:90vh;overflow:auto;border-radius:26px 26px 0 0;padding:16px 18px calc(22px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px;color:var(--ink);
+  -webkit-backdrop-filter:blur(30px) saturate(1.6);backdrop-filter:blur(30px) saturate(1.6)}
+@media (min-width:640px){.ap-sheet{border-radius:26px}}
+.ap-sheet h2{font-size:19px;font-weight:700}
+.ap-sheet label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.ap-sheet .field{text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);padding:9px 11px;font-size:15px}
+.ap-sheet .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ap-sheet .three{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.ap-sheet .acts{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap}
+.ap-sheet .acts .pill-btn{padding:10px 16px;font-size:14px}
+.ap-sheet .note{font-size:13px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
+.ap-days{display:flex;gap:4px;flex-wrap:wrap}
+.ap-days button{width:38px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-weight:600;font-size:12.5px}
+.ap-days button[aria-pressed="true"]{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff}
+
+/* shared widget bits */
+.w-line{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
+.w-line b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.w-line span{color:var(--on-wall-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.w-big{font-family:var(--f-clock);font-weight:800;font-size:22px;letter-spacing:-.02em;line-height:1.05}
