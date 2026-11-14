@@ -16,6 +16,7 @@ const SOURCES = {
   brightspace: { label: "Brightspace", icon: "graduationCap" },
   gradescope: { label: "Gradescope", icon: "listChecks" },
   ed: { label: "Ed", icon: "messageSquare" },
+  syllabus: { label: "Syllabus", icon: "inbox" },
   manual: { label: "Added by you", icon: "pencil" },
 };
 const COURSE_COLORS = ["#2f5bea", "#e5484d", "#22a45d", "#e08a00", "#8b5cf6", "#0e9fb0", "#db2777", "#64748b"];
@@ -39,11 +40,27 @@ export async function loadDeadlines() {
   const rows = await store.list(APP);
   return rows.map(r => ({ id: r.id, ...r.data })).filter(d => d && d.title !== undefined);
 }
+/** Courses for matching "cs" → "CS 18000": Schedule's course list first, then courses already used here. */
 export async function knownCourses() {
-  const all = await loadDeadlines();
   const seen = new Map();
-  for (const d of all) if (d.course) seen.set(d.course.toLowerCase(), d.course);
+  try { for (const c of await store.list("courses")) { const code = c.data && c.data.code; if (code) seen.set(code.toLowerCase(), code); } } catch (e) { /* no Schedule yet */ }
+  for (const d of await loadDeadlines()) if (d.course && !seen.has(d.course.toLowerCase())) seen.set(d.course.toLowerCase(), d.course);
   return [...seen.values()];
+}
+
+/** Shared agenda (read by Reminders and Today): open deadlines plus ones finished in the last 2 days. */
+export async function agenda() {
+  const cutoff = Date.now() - 2 * 864e5;
+  return (await loadDeadlines())
+    .filter(d => !d.done || (d.due || 0) > cutoff)
+    .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: "deadline", course: d.course || "", done: !!d.done, open: `#${APP}/${d.id}` }));
+}
+
+/** Mark one agenda item done ("deadlines:<id>"). */
+export async function complete(key) {
+  const id = String(key).replace(new RegExp(`^${APP}:`), "");
+  const d = await store.get(APP, id);
+  if (d && !d.done) await store.put(APP, id, { ...d, done: true });
 }
 /** Add a deadline from quick-capture text. Returns the saved item, or null if empty. */
 export async function addFromText(text) {
@@ -217,6 +234,7 @@ function openEdit(d) {
     </div>
     <label>Due<input class="field" type="datetime-local" name="due" value="${d.due ? toLocalInput(d.due) : ""}"></label>
     ${d.url ? `<a class="link-btn" href="${esc(d.url)}" target="_blank" rel="noopener">${svg("externalLink")} Open in Brightspace</a>` : ""}
+    ${isNew ? "" : `<button type="button" class="link-btn" data-act="breakdown" hidden>${svg("listChecks")} Break it down into steps</button>`}
     <div class="acts">
       ${isNew ? "<span></span>" : `<button type="button" class="pill-btn secondary" data-act="del" style="color:var(--bad)">Delete</button>`}
       <span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">Save</button></span>
@@ -230,6 +248,13 @@ function openEdit(d) {
   f.querySelector('[data-act="cancel"]').onclick = close;
   const del = f.querySelector('[data-act="del"]');
   if (del) del.onclick = async () => { close(); await store.remove(APP, d.id); ctx0.toast(`Deleted “${d.title}”`); render(); };
+  // "Break it down" appears once the Milestones app exists
+  const bd = f.querySelector('[data-act="breakdown"]');
+  if (bd) import("../index.js").then(m => {
+    if (!m.default.some(a => a.id === "milestones" && !a.hidden)) return;
+    bd.hidden = false;
+    bd.onclick = () => { close(); location.hash = `milestones/new?deadline=${encodeURIComponent(d.id)}`; };
+  }).catch(() => {});
   f.onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(f);
@@ -317,8 +342,11 @@ async function mount(el, ctx) {
   await render();
 }
 
-async function show() {
+/** show("d-abc") opens that deadline (links like #deadlines/d-abc from Today and Reminders). */
+async function show(arg) {
   await render();
+  const want = typeof arg === "string" && arg ? decodeURIComponent(arg) : "";
+  if (want) { const d = items.find(x => x.id === want); if (d) openEdit(d); }
   const cfg = await getConfig();
   if (cfg.url && Date.now() - (cfg.lastSync || 0) > SYNC_EVERY) runSync(false);
 }
@@ -344,4 +372,4 @@ async function widget(el) {
   getConfig().then(cfg => { if (cfg.url && navigator.onLine && Date.now() - (cfg.lastSync || 0) > SYNC_EVERY) syncBrightspace().catch(() => {}); });
 }
 
-export default { id: APP, name: "Deadlines", icon: "calendarClock", color: ["#ff9f1c", "#e8590c"], dock: true, wideWidget: true, mount, show, badge, widget };
+export default { id: APP, name: "Deadlines", icon: "calendarClock", color: ["#ff9f1c", "#e8590c"], dock: true, wideWidget: true, mount, show, badge, widget, agenda, complete };
