@@ -43,18 +43,24 @@ async function currentUser() {
   return data.session ? data.session.user : null;
 }
 
-/** Email a 6-digit sign-in code. */
-export async function sendCode(email) {
+/** Sign in with an existing account. */
+export async function signIn(email, password) {
   const c = await getClient();
-  const { error } = await c.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  const { data, error } = await c.auth.signInWithPassword({ email, password });
   if (error) throw error;
+  await afterSignIn(data.user);
 }
 
-/** Check the code from the email and sign in. */
-export async function verifyCode(email, token) {
+/** Make the account (first time only). Needs "Confirm email" turned off in Supabase. */
+export async function createAccount(email, password) {
   const c = await getClient();
-  const { data, error } = await c.auth.verifyOtp({ email, token, type: "email" });
+  const { data, error } = await c.auth.signUp({ email, password });
   if (error) throw error;
+  if (!data.session) {
+    const e = new Error("confirm-email-on");
+    e.code = "confirm_email_on";
+    throw e;
+  }
   await afterSignIn(data.user);
 }
 

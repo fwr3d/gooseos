@@ -1,48 +1,21 @@
-# Draws the GooseOS app icons: an orange goose footprint on blue grid paper.
+# Builds the GooseOS app icons from icons/source/goose.png:
+# the goose centered on a blue grid-paper tile, at every size the app needs.
 # Run from the project folder:
 #   powershell -ExecutionPolicy Bypass -File scripts/make-icons.ps1
 Add-Type -AssemblyName System.Drawing
 
 $root = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $root "icons"
-New-Item -ItemType Directory -Force $out | Out-Null
+$goose = [System.Drawing.Image]::FromFile((Join-Path $out "source\goose.png"))
 
-function P([double]$x, [double]$y, [double]$s, [double]$ox, [double]$oy) {
-  return New-Object System.Drawing.PointF ([single]($ox + $x * $s)), ([single]($oy + $y * $s))
-}
-
-# Footprint drawn in a 100x100 box: heel at the bottom, three toes fanning up,
-# webbing scalloped between the toes.
-function Foot-Path([double]$s, [double]$ox, [double]$oy) {
-  $p = New-Object System.Drawing.Drawing2D.GraphicsPath
-  $p.StartFigure()
-  # heel -> left toe tip
-  $p.AddBezier((P 50 96 $s $ox $oy), (P 40 93 $s $ox $oy), (P 16 66 $s $ox $oy), (P 4 34 $s $ox $oy))
-  # webbing curves in, then up to the middle toe
-  $p.AddBezier((P 4 34 $s $ox $oy), (P 12 40 $s $ox $oy), (P 22 47 $s $ox $oy), (P 31 46 $s $ox $oy))
-  $p.AddBezier((P 31 46 $s $ox $oy), (P 41 42 $s $ox $oy), (P 46 20 $s $ox $oy), (P 50 2 $s $ox $oy))
-  # middle toe down into the webbing, then out to the right toe
-  $p.AddBezier((P 50 2 $s $ox $oy), (P 54 20 $s $ox $oy), (P 59 42 $s $ox $oy), (P 69 46 $s $ox $oy))
-  $p.AddBezier((P 69 46 $s $ox $oy), (P 78 47 $s $ox $oy), (P 88 40 $s $ox $oy), (P 96 34 $s $ox $oy))
-  # right toe tip -> heel
-  $p.AddBezier((P 96 34 $s $ox $oy), (P 84 66 $s $ox $oy), (P 60 93 $s $ox $oy), (P 50 96 $s $ox $oy))
-  $p.CloseFigure()
-  return $p
-}
-
-# Toe lines from the heel out to each tip.
-function Toe-Lines($g, [double]$s, [double]$ox, [double]$oy, $pen) {
-  $g.DrawLine($pen, (P 50 82 $s $ox $oy), (P 12 38 $s $ox $oy))
-  $g.DrawLine($pen, (P 50 82 $s $ox $oy), (P 50 12 $s $ox $oy))
-  $g.DrawLine($pen, (P 50 82 $s $ox $oy), (P 88 38 $s $ox $oy))
-}
-
-# $content = share of the tile the footprint fills (smaller for maskable icons, which get cropped)
+# $content = how much of the tile the goose fills (smaller for maskable icons, which get cropped to a circle)
 function Draw-Icon([int]$size, [double]$content, [string]$file) {
   $bmp = New-Object System.Drawing.Bitmap $size, $size
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
   $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+  $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 
   $g.Clear([System.Drawing.Color]::FromArgb(255, 35, 72, 201))
 
@@ -55,35 +28,19 @@ function Draw-Icon([int]$size, [double]$content, [string]$file) {
     $g.DrawLine($gridPen, 0, $v, $size, $v)
   }
 
-  $s = $size * $content / 100
-  $ox = ($size - 100 * $s) / 2
-  $oy = ($size - 100 * $s) / 2 + $size * 0.01
-
-  $orange = [System.Drawing.Color]::FromArgb(255, 255, 159, 28)
-  $path = Foot-Path $s $ox $oy
-
-  # soft shadow
-  $shadow = Foot-Path $s ($ox) ($oy + $size * 0.018)
-  $g.FillPath((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(60, 10, 20, 70))), $shadow)
-
-  # rounded edges: fill, then stroke with the same color and round joins
-  $g.FillPath((New-Object System.Drawing.SolidBrush $orange), $path)
-  $edge = New-Object System.Drawing.Pen $orange, ([single]($s * 7))
-  $edge.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-  $g.DrawPath($edge, $path)
-
-  # darker toe lines
-  $toePen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 214, 112, 0)), ([single]($s * 4.2))
-  $toePen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-  $toePen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-  Toe-Lines $g $s $ox $oy $toePen
+  $w = [int]($size * $content)
+  $x = [int](($size - $w) / 2)
+  $y = [int](($size - $w) / 2)
+  $g.DrawImage($goose, (New-Object System.Drawing.Rectangle $x, $y, $w, $w))
 
   $bmp.Save((Join-Path $out $file), [System.Drawing.Imaging.ImageFormat]::Png)
   $g.Dispose(); $bmp.Dispose()
 }
 
-Draw-Icon 192 0.62 "icon-192.png"
-Draw-Icon 512 0.62 "icon-512.png"
-Draw-Icon 512 0.46 "icon-maskable-512.png"
-Draw-Icon 180 0.62 "apple-touch-icon.png"
+Draw-Icon 512 0.76 "icon-512.png"
+Draw-Icon 192 0.76 "icon-192.png"
+Draw-Icon 180 0.76 "apple-touch-icon.png"
+Draw-Icon 512 0.60 "icon-maskable-512.png"
+Draw-Icon 64  0.84 "favicon-64.png"
+$goose.Dispose()
 "Icons written to $out"

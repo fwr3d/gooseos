@@ -83,5 +83,4 @@ h1,h2,h3{font-family:var(--f-display);margin:0}
 .sheet form{display:flex;flex-direction:column;gap:10px}
 .sheet .field{padding:10px 12px;font-size:16px}
 .sheet .btn{padding:10px 14px;font-size:14px}
-.code-in{letter-spacing:.4em;text-align:center;font-variant-numeric:tabular-nums}
 .sheet .err{color:var(--bad);font-size:13px}

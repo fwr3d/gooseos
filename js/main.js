@@ -143,35 +143,39 @@ function drawSheet(step) {
     $("#s-out").onclick = async () => { await sync.signOut(); closeSheet(); toast("Signed out. Your stuff is still on this device."); };
     return;
   }
-  $("#sheet-title").textContent = "Sync your stuff";
-  if (step !== "code") {
-    body.innerHTML = `<p>Sign in on your PC and your iPhone with the same email, and everything stays in sync. We'll email you a 6-digit code.</p>
-      <form id="s-email-f"><input class="field" id="s-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required value="${esc(pendingEmail)}">
-      <button class="btn primary" type="submit" id="s-send">Email me a code</button><span class="err" id="s-err"></span></form>`;
-    $("#s-email").focus();
-    $("#s-email-f").onsubmit = async e => {
-      e.preventDefault(); pendingEmail = $("#s-email").value.trim();
-      $("#s-send").disabled = true; $("#s-send").textContent = "Sending…";
-      try { await sync.sendCode(pendingEmail); drawSheet("code"); }
-      catch (err) { $("#s-err").textContent = friendly(err); $("#s-send").disabled = false; $("#s-send").textContent = "Email me a code"; }
-    };
-  } else {
-    body.innerHTML = `<p>We sent a code to <b>${esc(pendingEmail)}</b>. Type it here. It can take a minute to arrive, so check spam too.</p>
-      <form id="s-code-f"><input class="field code-in" id="s-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456" required>
-      <button class="btn primary" type="submit" id="s-verify">Sign in</button><span class="err" id="s-err"></span>
-      <button class="btn ghost" type="button" id="s-back">Use a different email</button></form>`;
-    $("#s-code").focus();
-    $("#s-back").onclick = () => drawSheet();
-    $("#s-code-f").onsubmit = async e => {
-      e.preventDefault(); $("#s-verify").disabled = true; $("#s-verify").textContent = "Checking…";
-      try { await sync.verifyCode(pendingEmail, $("#s-code").value.replace(/\s/g, "")); closeSheet(); toast("Signed in. Syncing your stuff."); }
-      catch (err) { $("#s-err").textContent = friendly(err); $("#s-verify").disabled = false; $("#s-verify").textContent = "Sign in"; }
-    };
-  }
+  const creating = step === "create";
+  $("#sheet-title").textContent = creating ? "Make your account" : "Sync your stuff";
+  body.innerHTML = `<p>${creating
+      ? "Pick an email and a password. You'll use them to sign in on your PC and your iPhone."
+      : "Sign in with the same email and password on your PC and your iPhone, and everything stays in sync."}</p>
+    <form id="s-form">
+      <input class="field" id="s-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required value="${esc(pendingEmail)}" aria-label="Email">
+      <input class="field" id="s-pass" type="password" autocomplete="${creating ? "new-password" : "current-password"}" placeholder="${creating ? "Password (at least 6 characters)" : "Password"}" minlength="6" required aria-label="Password">
+      <button class="btn primary" type="submit" id="s-go">${creating ? "Make account and sign in" : "Sign in"}</button>
+      <span class="err" id="s-err"></span>
+      <button class="btn ghost" type="button" id="s-switch">${creating ? "I already have an account" : "First time? Make an account"}</button>
+    </form>`;
+  $(pendingEmail ? "#s-pass" : "#s-email").focus();
+  $("#s-switch").onclick = () => { pendingEmail = $("#s-email").value.trim(); drawSheet(creating ? "" : "create"); };
+  $("#s-form").onsubmit = async e => {
+    e.preventDefault();
+    pendingEmail = $("#s-email").value.trim();
+    const go = $("#s-go"), label = go.textContent;
+    go.disabled = true; go.textContent = creating ? "Making account…" : "Signing in…"; $("#s-err").textContent = "";
+    try {
+      if (creating) await sync.createAccount(pendingEmail, $("#s-pass").value);
+      else await sync.signIn(pendingEmail, $("#s-pass").value);
+      closeSheet(); toast("Signed in. Syncing your stuff.");
+    } catch (err) { $("#s-err").textContent = friendly(err); go.disabled = false; go.textContent = label; }
+  };
 }
 function friendly(err) {
   const m = (err && err.message) || "";
-  if (/expired|invalid/i.test(m)) return "That code didn't work. Check it, or go back and send a new one.";
+  if (err && err.code === "confirm_email_on") return "Account made, but Supabase wants to confirm it by email first. In Supabase, turn off Authentication → Sign In / Providers → Email → “Confirm email”, then sign in.";
+  if (/invalid login credentials/i.test(m)) return "Wrong email or password. First time here? Tap “Make an account”.";
+  if (/already registered|already exists/i.test(m)) return "There's already an account with this email. Tap “I already have an account” and sign in.";
+  if (/email not confirmed/i.test(m)) return "This account isn't confirmed yet. In Supabase, turn off “Confirm email” (Authentication → Sign In / Providers → Email), or confirm it under Authentication → Users.";
+  if (/password/i.test(m) && /least|short|weak/i.test(m)) return "That password is too short or too simple. Use at least 6 characters.";
   if (/rate|too many|seconds/i.test(m)) return "Too many tries. Wait a minute and try again.";
   if (!navigator.onLine) return "You're offline. Connect to the internet to sign in.";
   return m || "Something went wrong. Try again.";
