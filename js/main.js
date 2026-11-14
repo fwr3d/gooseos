@@ -1,8 +1,9 @@
-// The GooseOS shell: home screen, opening and closing apps, install tips,
-// offline support and the sync sign-in sheet.
+// The GooseOS shell: home screen (clock, widgets, app grid, dock), opening and
+// closing apps, install tips, offline support and the Settings sheet.
 import apps from "./apps/index.js";
 import * as store from "./store.js";
 import * as sync from "./sync.js";
+import { svg } from "./icons.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -25,31 +26,68 @@ function tick() {
   $("#date").textContent = n.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 }
 
-/* ---------- home grid ---------- */
-async function renderGrid() {
-  const icons = await Promise.all(apps.map(async a => {
-    let badge = "";
-    try { badge = a.badge ? (await a.badge()) || "" : ""; } catch (e) { badge = ""; }
-    const style = `background:${a.iconBg || "var(--accent)"};${a.iconBorder ? `border:1px solid ${a.iconBorder};` : ""}`;
-    return `<button class="app-ic" data-open="${a.id}"><span class="sq" style="${style}">${a.icon}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span><span class="lb">${esc(a.name)}</span></button>`;
-  }));
-  $("#apps").innerHTML = icons.join("");
+/* ---------- system app: Settings ---------- */
+const SETTINGS = { id: "settings", name: "Settings", icon: "settings", color: ["#8e9aaf", "#5b667a"], dock: true, system: true };
+const allIcons = () => [...apps, SETTINGS];
+const tileStyle = a => `background:linear-gradient(160deg,${a.color[0]},${a.color[1]})`;
+
+/* ---------- home: icons ---------- */
+async function iconHtml(a) {
+  let badge = "";
+  try { badge = a.badge ? (await a.badge()) || "" : ""; } catch (e) { badge = ""; }
+  return `<button class="app-ic" data-open="${a.id}" aria-label="${esc(a.name)}"><span class="sq" style="${tileStyle(a)}">${svg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span><span class="lb">${esc(a.name)}</span></button>`;
+}
+async function renderIcons() {
+  const list = allIcons();
+  $("#apps").innerHTML = (await Promise.all(list.filter(a => !a.dock).map(iconHtml))).join("");
+  $("#dock").innerHTML = (await Promise.all(list.filter(a => a.dock).map(iconHtml))).join("");
 }
 
+/* ---------- home: widgets ---------- */
+let syncState = { status: "off" };
+const SYNC_TEXT = { off: "Saved on this device", "signed-out": "Tap to turn on sync", syncing: "Syncing…", synced: "Synced", offline: "Offline · will sync later", error: "Sync problem · tap" };
+const SYNC_DOT = { synced: "ok", syncing: "busy", offline: "busy", error: "err" };
+function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late," : h < 12 ? "Good morning," : h < 18 ? "Good afternoon," : "Good evening,"; }
+
+function gooseWidget() {
+  return `<button class="widget glass w-goose" data-open="settings" aria-label="Settings and sync">
+    <img src="icons/source/goose.png" alt="">
+    <div><div class="w-hi">${greeting()}</div><div class="w-name">Goose</div></div>
+    <div class="w-sync"><i class="dot ${SYNC_DOT[syncState.status] || ""}"></i><span>${esc(SYNC_TEXT[syncState.status] || "")}</span></div>
+  </button>`;
+}
+async function renderWidgets() {
+  const host = $("#widgets");
+  host.innerHTML = gooseWidget();
+  for (const a of apps) {
+    if (!a.widget) continue;
+    const el = document.createElement("button");
+    el.className = "widget glass"; el.dataset.open = a.id; el.setAttribute("aria-label", `Open ${a.name}`);
+    host.appendChild(el);
+    try { await a.widget(el, { store, svg }); } catch (e) { console.error(e); el.remove(); }
+  }
+}
+function renderGooseWidget() {
+  const old = document.querySelector(".w-goose"); if (!old) return;
+  old.outerHTML = gooseWidget();
+}
+async function renderHome() { await Promise.all([renderIcons(), renderWidgets()]); }
+
 /* ---------- opening and closing apps ---------- */
-const views = new Map(); // id -> section element
+const views = new Map();
 let current = "";
 let openedFromHome = false;
 
 async function show(id) {
+  if (id === "settings") { history.replaceState(null, "", location.pathname + location.search); openSettings(); return; }
   const app = apps.find(a => a.id === id);
   if (current && current !== id) hideCurrent();
-  if (!app) { current = ""; $("#home").hidden = false; renderGrid(); return; }
+  if (!app) { current = ""; $("#home").hidden = false; renderHome(); return; }
   let el = views.get(id);
   if (!el) {
     el = document.createElement("section"); el.className = "view"; el.dataset.app = id; el.setAttribute("aria-label", app.name);
     $("#views").appendChild(el); views.set(id, el);
-    await app.mount(el, { store, toast, isActive: () => current === id });
+    await app.mount(el, { store, toast, svg, isActive: () => current === id });
   }
   current = id;
   $("#home").hidden = true; el.hidden = false;
@@ -67,7 +105,7 @@ function goHome() {
 }
 document.addEventListener("click", e => {
   const o = e.target.closest("[data-open]");
-  if (o) { openedFromHome = true; location.hash = o.dataset.open; return; }
+  if (o) { if (o.dataset.open === "settings") { openSettings(); return; } openedFromHome = true; location.hash = o.dataset.open; return; }
   if (e.target.closest("[data-home]")) goHome();
 });
 window.addEventListener("hashchange", route);
@@ -83,80 +121,90 @@ function showInstall(text, withButton) {
 }
 window.addEventListener("beforeinstallprompt", e => {
   e.preventDefault(); deferredPrompt = e;
-  showInstall("Install GooseOS to get it in your Start menu or home screen. It works offline too.", true);
+  showInstall("Install GooseOS for your Start menu or home screen. Works offline.", true);
 });
 $("#install-btn").onclick = async () => {
   if (!deferredPrompt) return;
   deferredPrompt.prompt(); await deferredPrompt.userChoice.catch(() => null);
   deferredPrompt = null; $("#install").hidden = true;
 };
+$("#install-dismiss").innerHTML = svg("x");
 $("#install-dismiss").onclick = () => { $("#install").hidden = true; try { localStorage.setItem("install-dismissed", "1"); } catch (e) { /* ignore */ } };
 window.addEventListener("appinstalled", () => { $("#install").hidden = true; toast("Installed. Open it from your home screen or Start menu."); });
-if (isIOS && !standalone) showInstall("To install: tap the Share button in Safari, then “Add to Home Screen”.", false);
+if (isIOS && !standalone) showInstall("To install: tap Share in Safari, then “Add to Home Screen”.", false);
 
 /* ---------- offline support + updates ---------- */
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
+      // Only offer updates when an older version was already running this page
+      // (not on the very first visit, when the offline copy is just being saved).
+      const hadController = !!navigator.serviceWorker.controller;
       const reg = await navigator.serviceWorker.register("sw.js");
-      const offer = w => toast("An update is ready.", { label: "Reload", run: () => w.postMessage("skipWaiting") });
-      if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
+      let wantReload = false;
+      const offer = w => toast("An update is ready.", { label: "Reload", run: () => { wantReload = true; w.postMessage("skipWaiting"); } });
+      if (hadController && reg.waiting) offer(reg.waiting);
       reg.addEventListener("updatefound", () => {
         const w = reg.installing;
-        w && w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) offer(w); });
+        w && w.addEventListener("statechange", () => { if (w.state === "installed" && hadController) offer(w); });
       });
-      let reloaded = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; location.reload(); } });
+      navigator.serviceWorker.addEventListener("controllerchange", () => { if (wantReload) { wantReload = false; location.reload(); } });
       document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
     } catch (e) { console.warn("Offline support unavailable", e); }
   });
 }
 
-/* ---------- account / sync sheet ---------- */
-const LABELS = { "signed-out": "Sign in to sync", syncing: "Syncing…", synced: "Synced", offline: "Offline · will sync later", error: "Sync problem" };
-let syncState = null;
-function renderAccount(s) {
-  syncState = s;
-  const btn = $("#account");
-  if (s.status === "off") { btn.hidden = true; return; }
-  btn.hidden = false;
-  btn.className = "account " + ({ synced: "ok", syncing: "busy", offline: "busy", error: "err" }[s.status] || "");
-  btn.querySelector("span").textContent = s.status === "synced" && s.email ? `Synced · ${s.email}` : LABELS[s.status] || "";
-}
-function openSheet() { $("#sheet").hidden = false; drawSheet(); }
+/* ---------- Settings sheet ---------- */
+function openSheet() { $("#sheet").hidden = false; }
 function closeSheet() { $("#sheet").hidden = true; }
-$("#account").onclick = openSheet;
+$("#sheet-close").innerHTML = svg("x");
 $("#sheet-close").onclick = closeSheet;
 $("#sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeSheet(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheet").hidden) closeSheet(); });
 
+function openSettings() { drawSettings(); openSheet(); }
+function drawSettings() {
+  $("#sheet-title").textContent = "Settings";
+  const s = syncState, signedIn = s.email && s.status !== "signed-out";
+  const syncRow = s.status === "off"
+    ? `<div class="row"><span class="tile-ic" style="background:#8e9aaf">${svg("cloudOff")}</span><div class="grow"><div class="t">Sync is off</div><div class="s">Everything is saved on this device.</div></div></div>`
+    : signedIn
+      ? `<div class="row"><span class="tile-ic" style="background:#22a45d">${svg("cloud")}</span><div class="grow"><div class="t">${esc(SYNC_TEXT[s.status])}</div><div class="s">${esc(s.email)}</div></div></div>
+         ${s.status === "error" ? `<div class="row"><div class="grow err">${esc(s.error || "Something went wrong.")}</div></div>` : ""}
+         <button class="row row-btn" id="st-sync"><span class="tile-ic" style="background:#2348c9">${svg("refreshCw")}</span><div class="grow t">Sync now</div></button>
+         <button class="row row-btn danger" id="st-out"><span class="tile-ic" style="background:#e5484d">${svg("logOut")}</span><div class="grow t">Sign out</div></button>`
+      : `<button class="row row-btn" id="st-in"><span class="tile-ic" style="background:#2348c9">${svg("cloud")}</span><div class="grow"><div class="t">Sign in to sync</div><div class="s">Keep your PC and iPhone in step.</div></div></button>`;
+  const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="background:#ff9f1c">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
+  $("#sheet-body").innerHTML = `
+    <div class="group-h">Sync</div><div class="group">${syncRow}</div>
+    ${installRow}
+    <div class="group-h">About</div>
+    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide.</div></div></div></div>`;
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on("#st-in", () => drawSignIn());
+  on("#st-sync", () => { sync.syncNow(); toast("Syncing…"); });
+  on("#st-out", async () => { await sync.signOut(); toast("Signed out. Your stuff is still on this device."); drawSettings(); });
+  on("#st-install", () => $("#install-btn").click());
+}
+
 let pendingEmail = "";
-function drawSheet(step) {
-  const body = $("#sheet-body");
-  if (syncState && syncState.email && syncState.status !== "signed-out") {
-    $("#sheet-title").textContent = "Syncing is on";
-    body.innerHTML = `<p>Signed in as <b>${esc(syncState.email)}</b>. Everything you make syncs to your other devices signed in with this email.</p>
-      ${syncState.status === "error" ? `<p class="err">Last sync failed: ${esc(syncState.error || "unknown error")}</p>` : ""}
-      <div class="row" style="display:flex;gap:8px"><button class="btn primary" id="s-sync">Sync now</button><button class="btn" id="s-out">Sign out</button></div>
-      <p>Signing out keeps everything on this device. It just stops syncing.</p>`;
-    $("#s-sync").onclick = () => { sync.syncNow(); toast("Syncing…"); };
-    $("#s-out").onclick = async () => { await sync.signOut(); closeSheet(); toast("Signed out. Your stuff is still on this device."); };
-    return;
-  }
+function drawSignIn(step) {
   const creating = step === "create";
-  $("#sheet-title").textContent = creating ? "Make your account" : "Sync your stuff";
-  body.innerHTML = `<p>${creating
-      ? "Pick an email and a password. You'll use them to sign in on your PC and your iPhone."
-      : "Sign in with the same email and password on your PC and your iPhone, and everything stays in sync."}</p>
+  $("#sheet-title").textContent = creating ? "Make your account" : "Sign in";
+  $("#sheet-body").innerHTML = `<p>${creating
+      ? "Pick an email and a password. You'll use them on your PC and your iPhone."
+      : "Use the same email and password on your PC and your iPhone, and everything stays in sync."}</p>
     <form id="s-form">
-      <input class="field" id="s-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required value="${esc(pendingEmail)}" aria-label="Email">
+      <input class="field" id="s-email" type="email" autocomplete="email" inputmode="email" placeholder="Email" required value="${esc(pendingEmail)}" aria-label="Email">
       <input class="field" id="s-pass" type="password" autocomplete="${creating ? "new-password" : "current-password"}" placeholder="${creating ? "Password (at least 6 characters)" : "Password"}" minlength="6" required aria-label="Password">
-      <button class="btn primary" type="submit" id="s-go">${creating ? "Make account and sign in" : "Sign in"}</button>
+      <button class="pill-btn" type="submit" id="s-go">${creating ? "Make account and sign in" : "Sign in"}</button>
       <span class="err" id="s-err"></span>
-      <button class="btn ghost" type="button" id="s-switch">${creating ? "I already have an account" : "First time? Make an account"}</button>
+      <button class="link-btn" type="button" id="s-switch">${creating ? "I already have an account" : "First time? Make an account"}</button>
+      <button class="link-btn" type="button" id="s-back" style="color:var(--muted)">Back to Settings</button>
     </form>`;
   $(pendingEmail ? "#s-pass" : "#s-email").focus();
-  $("#s-switch").onclick = () => { pendingEmail = $("#s-email").value.trim(); drawSheet(creating ? "" : "create"); };
+  $("#s-switch").onclick = () => { pendingEmail = $("#s-email").value.trim(); drawSignIn(creating ? "" : "create"); };
+  $("#s-back").onclick = drawSettings;
   $("#s-form").onsubmit = async e => {
     e.preventDefault();
     pendingEmail = $("#s-email").value.trim();
@@ -171,10 +219,11 @@ function drawSheet(step) {
 }
 function friendly(err) {
   const m = (err && err.message) || "";
-  if (err && err.code === "confirm_email_on") return "Account made, but Supabase wants to confirm it by email first. In Supabase, turn off Authentication → Sign In / Providers → Email → “Confirm email”, then sign in.";
+  if (err && err.code === "confirm_email_on") return "Account made, but Supabase wants to confirm it by email first. In Supabase, turn off Authentication → Sign In / Providers → “Confirm email”, then sign in.";
   if (/invalid login credentials/i.test(m)) return "Wrong email or password. First time here? Tap “Make an account”.";
   if (/already registered|already exists/i.test(m)) return "There's already an account with this email. Tap “I already have an account” and sign in.";
-  if (/email not confirmed/i.test(m)) return "This account isn't confirmed yet. In Supabase, turn off “Confirm email” (Authentication → Sign In / Providers → Email), or confirm it under Authentication → Users.";
+  if (/email not confirmed/i.test(m)) return "This account isn't confirmed yet. In Supabase, turn off “Confirm email”, or confirm it under Authentication → Users.";
+  if (/signups not allowed|signup.*disabled/i.test(m)) return "New accounts are turned off for GooseOS. Sign in with your existing account.";
   if (/password/i.test(m) && /least|short|weak/i.test(m)) return "That password is too short or too simple. Use at least 6 characters.";
   if (/rate|too many|seconds/i.test(m)) return "Too many tries. Wait a minute and try again.";
   if (!navigator.onLine) return "You're offline. Connect to the internet to sign in.";
@@ -183,8 +232,14 @@ function friendly(err) {
 
 /* ---------- start ---------- */
 tick(); setInterval(tick, 10000);
+setInterval(() => { if (!current) renderGooseWidget(); }, 5 * 60000);
 store.askPersistent();
 route();
-sync.onStatus(renderAccount);
+sync.onStatus(s => {
+  syncState = s;
+  if (!current) renderGooseWidget();
+  if (!$("#sheet").hidden && $("#sheet-title").textContent === "Settings") drawSettings();
+});
 sync.start();
-store.onChange(() => { if (!current) renderGrid(); });
+let homeT = null;
+store.onChange(() => { if (!current) { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); } });

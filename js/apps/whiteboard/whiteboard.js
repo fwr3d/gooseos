@@ -3,31 +3,17 @@
 //   { name, bg, strokes, created }
 // Each stroke is { t, c, w, p: [x, y, ...], s? } in board coordinates.
 // Pan/zoom position is kept per device only (localStorage), so it doesn't sync.
+import { svg } from "../../icons.js";
 
 const APP = "whiteboard";
 
-const ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M5 15c2.5-5 4.5-6 5.5-4s-1 5 1 5 3-6 7.5-8" stroke="#2348c9" stroke-width="2.2"/>
-  <path d="M14.5 19.5l5.5-5.5" stroke="#d14b2f" stroke-width="2.2"/>
-  <circle cx="7" cy="7" r="2" stroke="#16855a" stroke-width="2"/></svg>`;
-
-const TOOL_ICONS = {
-  hand: '<path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V10"/><path d="M11 9.5V4a1.5 1.5 0 0 1 3 0v6"/><path d="M14 9.5V5.5a1.5 1.5 0 0 1 3 0V13"/><path d="M8 11.5V9.5a1.5 1.5 0 0 0-3 0V14a7 7 0 0 0 7 7h1a6 6 0 0 0 4-1.6"/><path d="M17 13a5 5 0 0 1-.5 6"/>',
-  pen: '<path d="M4 20l1.2-4.4L16 4.8a2 2 0 0 1 2.8 0l.4.4a2 2 0 0 1 0 2.8L8.4 18.8z"/><path d="M14.5 6.5l3 3"/>',
-  hl: '<path d="M9 14l-3 3v2h5l2-2"/><path d="M9 14l7-9 4 4-9 7z"/><path d="M4 21h16" opacity=".5"/>',
-  eraser: '<path d="M8 20h12"/><path d="M5.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L12 19H8.5z"/><path d="M9.5 11.5l5 5"/>',
-  line: '<path d="M5 19L19 5"/>',
-  arrow: '<path d="M5 19L19 5"/><path d="M11 5h8v8"/>',
-  rect: '<rect x="4" y="6" width="16" height="12" rx="1.5"/>',
-  ell: '<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/>',
-  text: '<path d="M5 6V4.5h14V6"/><path d="M12 4.5v15"/><path d="M9 19.5h6"/>'
-};
-const TOOLS = [["hand", "Move (Space)"], ["pen", "Pen (P)"], ["hl", "Highlighter (H)"], ["eraser", "Eraser (E)"], ["sep"],
-  ["line", "Line (L)"], ["arrow", "Arrow (A)"], ["rect", "Rectangle (R)"], ["ell", "Circle (O)"], ["text", "Text (T)"]];
+const TOOLS = [["hand", "Move (Space)", "hand"], ["pen", "Pen (P)", "pencil"], ["hl", "Highlighter (H)", "highlighter"], ["eraser", "Eraser (E)", "eraser"], ["sep"],
+  ["line", "Line (L)", "slash"], ["arrow", "Arrow (A)", "moveUpRight"], ["rect", "Rectangle (R)", "square"], ["ell", "Circle (O)", "circle"], ["text", "Text (T)", "type"]];
 const KEYMAP = { v: "hand", p: "pen", h: "hl", e: "eraser", l: "line", a: "arrow", r: "rect", o: "ell", t: "text" };
-const COLORS = ["ink", "#2348c9", "#d14b2f", "#16855a", "#c98a00", "#8a3fc4", "#0e8aa0", "#e0457b"];
+const COLORS = ["ink", "#2f5bea", "#e5484d", "#22a45d", "#f2a20c", "#8b5cf6", "#0ea5b7", "#ec4899"];
 const HL_COLORS = ["#ffe45c", "#7ee08a", "#7cc8ff", "#ff9ec3", "#ffb35c"];
 const SIZES = [2, 4, 8];
+const BGS = [["dots", "Dots"], ["grid", "Grid"], ["lines", "Lined"], ["blank", "Blank"]];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -35,6 +21,7 @@ const rnd = v => Math.round(v * 10) / 10;
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const textSize = w => (w === 2 ? 22 : w === 4 ? 32 : 48);
 const clampZ = z => Math.min(6, Math.max(0.15, z));
+const measure = document.createElement("canvas").getContext("2d");
 
 let ctx0;          // shell context: { store, toast, isActive }
 let root;          // this app's container
@@ -64,13 +51,17 @@ async function loadBoards() {
 }
 const dataOf = b => ({ name: b.name, bg: b.bg, strokes: b.strokes, created: b.created });
 function save(now) {
-  setStatus("Saving…");
+  setStatus("saving");
   clearTimeout(saveT);
   const b = board;
-  const go = () => ctx0.store.put(APP, b.id, dataOf(b)).then(() => setStatus("Saved")).catch(() => setStatus("Couldn't save"));
+  const go = () => ctx0.store.put(APP, b.id, dataOf(b)).then(() => setStatus("saved")).catch(() => setStatus("error"));
   if (now) go(); else saveT = setTimeout(go, 400);
 }
-function setStatus(t) { const el = $("#wb-status"); if (el) el.textContent = t; }
+function setStatus(s) {
+  const el = $("#wb-status"); if (!el) return;
+  el.innerHTML = s === "error" ? svg("cloudOff") : s === "saving" ? svg("refreshCw") : svg("check");
+  el.title = s === "error" ? "Couldn't save" : s === "saving" ? "Saving…" : "Saved";
+}
 
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -81,13 +72,11 @@ function loadView() {
 let viewT = null;
 function saveView() { clearTimeout(viewT); viewT = setTimeout(() => lsSet("wb-view-" + board.id, JSON.stringify(view)), 400); }
 
-function renderBoards() {
-  $("#wb-board").innerHTML = boards.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
-  $("#wb-board").value = board.id;
-  $("#wb-bg").value = board.bg;
+function renderBar() {
+  $("#wb-board-name").textContent = board.name;
   updateUndo(); updateZoom();
 }
-function switchTo(b) { commitText(); board = b; undoStack = []; redoStack = []; loadView(); renderBoards(); redraw(); }
+function switchTo(b) { commitText(); board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
 
 /* ---------- undo ---------- */
 function snapshot() { undoStack.push(JSON.stringify(board.strokes)); if (undoStack.length > 60) undoStack.shift(); redoStack = []; updateUndo(); }
@@ -98,7 +87,9 @@ function updateUndo() { $("#wb-undo").disabled = !undoStack.length; $("#wb-redo"
 /* ---------- drawing ---------- */
 const toWorld = (sx, sy) => [(sx - view.x) / view.z, (sy - view.y) / view.z];
 function resize() {
-  const r = stage.getBoundingClientRect(); dpr = window.devicePixelRatio || 1; W = r.width; H = r.height;
+  const r = stage.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  dpr = window.devicePixelRatio || 1; W = r.width; H = r.height;
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); redraw();
 }
 function drawBg(c, v, w, h, bgCol, dotCol, bg) {
@@ -150,9 +141,19 @@ function redraw() {
 }
 const req = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; redraw(); }); };
 
-/* ---------- eraser hit testing ---------- */
+/* ---------- geometry ---------- */
+function textBox_(s) { measure.font = `500 ${textSize(s.w)}px ${css("--f-hand")}`; const ls = String(s.s).split("\n"); return { w: Math.max(...ls.map(l => measure.measureText(l).width)), h: ls.length * textSize(s.w) * 1.15 }; }
+function boundsOf(strokes) {
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  for (const s of strokes) {
+    const p = s.p; let ex = 0, ey = 0;
+    if (s.t === "text") { const bb = textBox_(s); ex = bb.w; ey = bb.h; }
+    const pad = s.t === "hl" ? s.w * 2.5 : s.w / 2;
+    for (let i = 0; i < p.length; i += 2) { a = Math.min(a, p[i] - pad); b = Math.min(b, p[i + 1] - pad); c = Math.max(c, p[i] + ex + pad); d = Math.max(d, p[i + 1] + ey + pad); }
+  }
+  return isFinite(a) ? { x: a, y: b, w: c - a, h: d - b } : null;
+}
 function segDist(px, py, ax, ay, bx, by) { const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy; let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(px - (ax + t * dx), py - (ay + t * dy)); }
-function textBox_(s) { cx.font = `500 ${textSize(s.w)}px ${css("--f-hand")}`; const ls = String(s.s).split("\n"); return { w: Math.max(...ls.map(l => cx.measureText(l).width)), h: ls.length * textSize(s.w) * 1.15 }; }
 function hits(s, x, y, r) {
   const p = s.p, pad = r + (s.t === "hl" ? s.w * 2.5 : s.w / 2);
   if (s.t === "pen" || s.t === "hl") { if (p.length === 2) return Math.hypot(x - p[0], y - p[1]) < pad; for (let i = 0; i < p.length - 2; i += 2) if (segDist(x, y, p[i], p[i + 1], p[i + 2], p[i + 3]) < pad) return true; return false; }
@@ -171,14 +172,16 @@ function hits(s, x, y, r) {
 const pointers = new Map();
 let mode = null, start = null, pinch = null, erasedAny = false, spaceDown = false;
 function local(e) { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+const coalesced = e => { const list = e.getCoalescedEvents ? e.getCoalescedEvents() : []; return list.length ? list : [e]; };
 function onDown(e) {
   if (e.target.closest(".wb-dock,.wb-zoom,.wb-text-in")) return;
+  closeMenu();
   stage.setPointerCapture(e.pointerId);
   const [sx, sy] = local(e); pointers.set(e.pointerId, [sx, sy]);
   if (pointers.size === 2) {
     live = null; mode = "pinch";
     const [a, b] = [...pointers.values()];
-    pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, v: { ...view } };
+    pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, v: { ...view } };
     req(); return;
   }
   if (pointers.size > 2) return;
@@ -202,11 +205,10 @@ function onMove(e) {
     view = { x: mx - wx * z, y: my - wy * z, z }; updateZoom(); req(); return;
   }
   if (mode === "pan") { view.x = start.vx + (sx - start.sx); view.y = start.vy + (sy - start.sy); req(); return; }
-  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-  if (mode === "erase") { for (const ce of evs) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); eraseAt(x, y); } return; }
+  if (mode === "erase") { for (const ce of coalesced(e)) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); eraseAt(x, y); } return; }
   if (mode === "draw" && live) {
     if (live.t === "pen" || live.t === "hl") {
-      for (const ce of evs) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); const p = live.p; if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) * view.z > 1.5) p.push(rnd(x), rnd(y)); }
+      for (const ce of coalesced(e)) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); const p = live.p; if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) * view.z > 1.5) p.push(rnd(x), rnd(y)); }
     } else {
       let [x, y] = toWorld(sx, sy); const p = live.p;
       if (e.shiftKey) {
@@ -238,20 +240,14 @@ function eraseAt(x, y) {
 
 /* ---------- zoom ---------- */
 function zoomAt(sx, sy, f) { const z = clampZ(view.z * f), wx = (sx - view.x) / view.z, wy = (sy - view.y) / view.z; view = { x: sx - wx * z, y: sy - wy * z, z }; updateZoom(); req(); saveView(); }
-function updateZoom() { $("#wb-zlvl").textContent = Math.round(view.z * 100) + "%"; }
-function bounds() {
-  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
-  for (const s of board.strokes) {
-    const p = s.p; let ex = 0, ey = 0;
-    if (s.t === "text") { const bb = textBox_(s); ex = bb.w; ey = bb.h; }
-    for (let i = 0; i < p.length; i += 2) { a = Math.min(a, p[i]); b = Math.min(b, p[i + 1]); c = Math.max(c, p[i] + ex); d = Math.max(d, p[i + 1] + ey); }
-  }
-  return isFinite(a) ? { x: a, y: b, w: c - a, h: d - b } : null;
-}
+function updateZoom() { const el = $("#wb-zlvl"); if (el) el.textContent = Math.round(view.z * 100) + "%"; }
 function fit() {
-  const bb = bounds();
+  const bb = boundsOf(board.strokes), top = 64, bottom = 120;
   if (!bb) view = { x: 0, y: 0, z: 1 };
-  else { const pad = 60, z = clampZ(Math.min((W - pad * 2) / Math.max(bb.w, 1), (H - pad * 2 - 90) / Math.max(bb.h, 1), 2)); view = { x: W / 2 - (bb.x + bb.w / 2) * z, y: (H - 90) / 2 - (bb.y + bb.h / 2) * z, z }; }
+  else {
+    const pad = 40, z = clampZ(Math.min((W - pad * 2) / Math.max(bb.w, 1), (H - top - bottom - pad) / Math.max(bb.h, 1), 2));
+    view = { x: W / 2 - (bb.x + bb.w / 2) * z, y: top + (H - top - bottom) / 2 - (bb.y + bb.h / 2) * z, z };
+  }
   updateZoom(); req(); saveView();
 }
 
@@ -274,7 +270,7 @@ function commitText() {
   if (v) { snapshot(); board.strokes.push({ t: "text", c: tb.c, w: tb.w, p: [rnd(tb.wx), rnd(tb.wy)], s: v }); save(); req(); }
 }
 
-/* ---------- toolbar ---------- */
+/* ---------- tool dock ---------- */
 function drawStyles() {
   const cols = tool === "hl" ? HL_COLORS : COLORS, cur = tool === "hl" ? hlColor : color;
   $("#wb-styles").innerHTML = cols.map(c => `<button class="wb-sw" data-color="${c}" aria-label="Color ${c === "ink" ? "black" : c}" aria-pressed="${c === cur}" style="background:${c === "ink" ? "var(--ink)" : c}"></button>`).join("") +
@@ -288,21 +284,96 @@ function setTool(t) {
   drawStyles();
 }
 
+/* ---------- menus ---------- */
+let menuEl = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+function openMenu(anchor, html, wire) {
+  closeMenu();
+  const m = document.createElement("div"); m.className = "wb-menu"; m.setAttribute("role", "menu"); m.innerHTML = html;
+  root.appendChild(m); menuEl = m;
+  const r = anchor.getBoundingClientRect(), rr = root.getBoundingClientRect();
+  m.style.top = (r.bottom - rr.top + 6) + "px";
+  const left = Math.min(Math.max(8, r.left - rr.left), rr.width - m.offsetWidth - 8);
+  m.style.left = left + "px";
+  wire(m);
+}
+function boardMenu(anchor) {
+  const html = `<div class="wb-mlabel">Boards</div>` +
+    boards.map(b => `<button class="wb-mi ${b.id === board.id ? "on" : ""}" data-b="${b.id}">${svg(b.id === board.id ? "check" : "layers")}<span class="grow">${esc(b.name)}</span></button>`).join("") +
+    `<div class="wb-msep"></div>
+     <button class="wb-mi" data-act="new">${svg("plus")}<span class="grow">New board</span></button>
+     <button class="wb-mi" data-act="rename">${svg("pencilLine")}<span class="grow">Rename “${esc(board.name)}”</span></button>
+     <button class="wb-mi danger" data-act="delete">${svg("trash2")}<span class="grow">Delete “${esc(board.name)}”</span></button>`;
+  openMenu(anchor, html, m => {
+    m.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { closeMenu(); switchTo(boards.find(x => x.id === b.dataset.b)); });
+    m.querySelector('[data-act="new"]').onclick = () => { closeMenu(); const b = newBoard(); boards.push(b); switchTo(b); save(true); ctx0.toast(`Made “${b.name}”`); };
+    m.querySelector('[data-act="rename"]').onclick = () => {
+      m.innerHTML = `<div class="wb-mlabel">Rename board</div><form class="wb-rename"><input value="${esc(board.name)}" maxlength="60" aria-label="Board name"></form>
+        <div class="wb-ask-row"><button class="pill-btn secondary" data-no>Cancel</button><button class="pill-btn" data-yes>Save</button></div>`;
+      const inp = m.querySelector("input"); inp.focus(); inp.select();
+      const ok = () => { const v = inp.value.trim(); if (v) { board.name = v; save(true); renderBar(); } closeMenu(); };
+      m.querySelector("form").onsubmit = e => { e.preventDefault(); ok(); };
+      m.querySelector("[data-yes]").onclick = ok; m.querySelector("[data-no]").onclick = closeMenu;
+    };
+    m.querySelector('[data-act="delete"]').onclick = () => {
+      m.innerHTML = `<div class="wb-ask">Delete “${esc(board.name)}” on all your devices? This can't be undone.</div>
+        <div class="wb-ask-row"><button class="pill-btn secondary" data-no>Cancel</button><button class="pill-btn danger" data-yes>Delete</button></div>`;
+      m.querySelector("[data-no]").onclick = closeMenu;
+      m.querySelector("[data-yes]").onclick = async () => {
+        closeMenu();
+        const gone = board; await ctx0.store.remove(APP, gone.id);
+        boards = boards.filter(b => b !== gone);
+        if (!boards.length) { const b = newBoard("Board 1"); boards.push(b); await ctx0.store.put(APP, b.id, dataOf(b)); }
+        switchTo(boards[0]); ctx0.toast(`Deleted “${gone.name}”`);
+      };
+    };
+  });
+}
+function moreMenu(anchor) {
+  const html = `<div class="wb-mlabel">Background</div>
+    <div class="wb-seg">${BGS.map(([v, l]) => `<button data-bg="${v}" aria-pressed="${board.bg === v}">${l}</button>`).join("")}</div>
+    <div class="wb-msep"></div>
+    <button class="wb-mi" data-act="fit">${svg("maximize2")}<span class="grow">Fit drawing to screen</span></button>
+    <button class="wb-mi" data-act="export">${svg("imageDown")}<span class="grow">Save as image</span></button>
+    <button class="wb-mi danger" data-act="clear">${svg("brushCleaning")}<span class="grow">Clear board</span></button>`;
+  openMenu(anchor, html, m => {
+    m.querySelectorAll("[data-bg]").forEach(b => b.onclick = () => {
+      board.bg = b.dataset.bg; redraw(); save();
+      m.querySelectorAll("[data-bg]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    });
+    m.querySelector('[data-act="fit"]').onclick = () => { closeMenu(); fit(); };
+    m.querySelector('[data-act="export"]').onclick = () => { closeMenu(); exportImage(); };
+    m.querySelector('[data-act="clear"]').onclick = () => {
+      if (!board.strokes.length) { closeMenu(); ctx0.toast("This board is already empty."); return; }
+      m.innerHTML = `<div class="wb-ask">Erase everything on “${esc(board.name)}”? Undo brings it back.</div>
+        <div class="wb-ask-row"><button class="pill-btn secondary" data-no>Cancel</button><button class="pill-btn danger" data-yes>Clear</button></div>`;
+      m.querySelector("[data-no]").onclick = closeMenu;
+      m.querySelector("[data-yes]").onclick = () => { closeMenu(); snapshot(); board.strokes = []; redraw(); save(); ctx0.toast("Cleared. Undo brings it back."); };
+    };
+  });
+}
+
 /* ---------- save as image ---------- */
+function renderTo(c, strokes, bg, w, h, pad) {
+  const bb = boundsOf(strokes);
+  const v = bb ? (() => { const z = Math.min((w - pad * 2) / Math.max(bb.w, 1), (h - pad * 2) / Math.max(bb.h, 1), 3); return { x: w / 2 - (bb.x + bb.w / 2) * z, y: h / 2 - (bb.y + bb.h / 2) * z, z }; })() : { x: 0, y: 0, z: 1 };
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  drawBg(c, v, w, h, css("--board"), css("--board-dot"), bg);
+  c.setTransform(v.z, 0, 0, v.z, v.x, v.y);
+  const ink = css("--ink"); for (const s of strokes) drawStroke(c, s, ink);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+}
 async function exportImage() {
-  commitText(); const bb = bounds(); if (!bb) { ctx0.toast("Draw something first."); return; }
-  const pad = 40, scale = 2, w = Math.ceil(bb.w + pad * 2), h = Math.ceil(bb.h + pad * 2);
-  if (w * h * scale * scale > 40e6) { ctx0.toast("This board is too big to save as one image."); return; }
-  const oc = document.createElement("canvas"); oc.width = w * scale; oc.height = h * scale; const c = oc.getContext("2d");
-  const v = { x: (pad - bb.x) * scale, y: (pad - bb.y) * scale, z: scale };
-  drawBg(c, v, oc.width, oc.height, css("--board"), css("--board-dot"), board.bg);
-  c.setTransform(scale, 0, 0, scale, v.x, v.y); const ink = css("--ink"); for (const s of board.strokes) drawStroke(c, s, ink);
+  commitText(); const bb = boundsOf(board.strokes); if (!bb) { ctx0.toast("Draw something first."); return; }
+  const scale = 2, w = Math.ceil((bb.w + 80) * scale), h = Math.ceil((bb.h + 80) * scale);
+  if (w * h > 40e6) { ctx0.toast("This board is too big to save as one image."); return; }
+  const oc = document.createElement("canvas"); oc.width = w; oc.height = h;
+  renderTo(oc.getContext("2d"), board.strokes, board.bg, w, h, 40 * scale);
   const blob = await new Promise(r => oc.toBlob(r, "image/png"));
   if (!blob) { ctx0.toast("Couldn't make the image."); return; }
   const name = (board.name || "whiteboard").replace(/[^\w\- ]+/g, "").trim() + ".png";
   const file = new File([blob], name, { type: "image/png" });
-  const touch = matchMedia("(pointer: coarse)").matches;
-  if (touch && navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (matchMedia("(pointer: coarse)").matches && navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file] }); } catch (e) { /* closed the share sheet */ }
     return;
   }
@@ -311,53 +382,41 @@ async function exportImage() {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/* ---------- confirm helpers ---------- */
-function confirmIn(wrapSel, label, question, onYes) {
-  const wrap = $(wrapSel), original = wrap.innerHTML;
-  wrap.innerHTML = `<span class="confirm">${question} <button class="btn danger" data-yes>${label}</button><button class="btn" data-no>Cancel</button></span>`;
-  wrap.querySelector("[data-yes]").onclick = () => { wrap.innerHTML = original; onYes(); };
-  wrap.querySelector("[data-no]").onclick = () => { wrap.innerHTML = original; };
-}
-
 /* ---------- markup ---------- */
-const MARKUP = `
-  <div class="view-bar">
-    <button class="home-btn" data-home>‹ Home</button>
-    <span class="view-title">Whiteboard</span>
-    <select class="field" id="wb-board" aria-label="Board"></select>
-    <button class="btn" id="wb-new">+ New</button>
-    <button class="btn" id="wb-rename">Rename</button>
-    <span id="wb-del-wrap"><button class="btn" id="wb-del">Delete</button></span>
-    <span class="spacer"></span>
-    <span class="wb-status" id="wb-status"></span>
-    <button class="btn" id="wb-undo" title="Undo (Ctrl+Z)">↶ Undo</button>
-    <button class="btn" id="wb-redo" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
-    <select class="field" id="wb-bg" aria-label="Background">
-      <option value="dots">Dots</option><option value="grid">Grid</option><option value="lines">Lined</option><option value="blank">Blank</option>
-    </select>
-    <button class="btn" id="wb-export">Save image</button>
-    <span id="wb-clear-wrap"><button class="btn" id="wb-clear">Clear</button></span>
+const MARKUP = () => `
+  <div class="wb-bar">
+    <button class="wb-home" data-home aria-label="Home">${svg("chevronLeft")}Home</button>
+    <button class="wb-board" id="wb-board" aria-haspopup="menu"><span id="wb-board-name"></span>${svg("chevronDown")}</button>
+    <span class="wb-spacer"></span>
+    <span class="wb-status" id="wb-status" aria-live="polite"></span>
+    <button class="icon-btn" id="wb-undo" aria-label="Undo" title="Undo (Ctrl+Z)">${svg("undo2")}</button>
+    <button class="icon-btn" id="wb-redo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">${svg("redo2")}</button>
+    <button class="icon-btn" id="wb-more" aria-label="More" aria-haspopup="menu">${svg("ellipsis")}</button>
   </div>
   <div class="wb-stage draw" id="wb-stage">
     <canvas></canvas>
-    <div class="wb-hint" id="wb-hint">Draw anything<small>Space + drag to move around · Ctrl + scroll to zoom · pinch on touch</small></div>
-    <div class="wb-zoom">
-      <button id="wb-zout" aria-label="Zoom out">−</button><span id="wb-zlvl">100%</span><button id="wb-zin" aria-label="Zoom in">+</button>
-      <button id="wb-zfit" aria-label="Fit drawing to screen" title="Fit to screen">⤢</button>
+    <div class="wb-hint" id="wb-hint">Draw anything<small>Pinch or Ctrl + scroll to zoom · Space + drag to move</small></div>
+    <div class="wb-zoom glass">
+      <button class="icon-btn" id="wb-zout" aria-label="Zoom out">${svg("minus")}</button><span id="wb-zlvl">100%</span><button class="icon-btn" id="wb-zin" aria-label="Zoom in">${svg("plus")}</button>
     </div>
     <div class="wb-dock">
-      <div class="wb-styles" id="wb-styles"></div>
-      <div class="wb-tools" id="wb-tools">${TOOLS.map(([id, label]) => id === "sep" ? `<span class="wb-sep"></span>` :
-        `<button class="wb-tool" data-tool="${id}" aria-label="${label}" title="${label}" aria-pressed="${id === tool}"><svg viewBox="0 0 24 24">${TOOL_ICONS[id]}</svg></button>`).join("")}</div>
+      <div class="wb-styles glass" id="wb-styles"></div>
+      <div class="wb-tools glass" id="wb-tools">${TOOLS.map(([id, label, ic]) => id === "sep" ? `<span class="wb-sep"></span>` :
+        `<button class="wb-tool" data-tool="${id}" aria-label="${label}" title="${label}" aria-pressed="${id === tool}">${svg(ic)}</button>`).join("")}</div>
     </div>
   </div>`;
 
 /* ---------- app interface ---------- */
-async function mount(el, ctx) {
-  ctx0 = ctx; root = el;
+let cssLoaded = false;
+function loadCss() {
+  if (cssLoaded) return; cssLoaded = true;
   const link = document.createElement("link"); link.rel = "stylesheet"; link.href = new URL("./whiteboard.css", import.meta.url).href;
   document.head.appendChild(link);
-  el.innerHTML = MARKUP;
+}
+
+async function mount(el, ctx) {
+  ctx0 = ctx; root = el; loadCss();
+  el.innerHTML = MARKUP();
   stage = $("#wb-stage"); cv = stage.querySelector("canvas"); cx = cv.getContext("2d");
 
   stage.addEventListener("pointerdown", onDown);
@@ -370,6 +429,7 @@ async function mount(el, ctx) {
     if (e.ctrlKey || e.metaKey) zoomAt(sx, sy, Math.exp(-e.deltaY * 0.0025));
     else { view.x -= e.deltaX; view.y -= e.deltaY; req(); saveView(); }
   }, { passive: false });
+  new ResizeObserver(() => { if (ctx0.isActive()) resize(); }).observe(stage);
 
   $("#wb-tools").addEventListener("click", e => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
   $("#wb-styles").addEventListener("click", e => {
@@ -380,38 +440,14 @@ async function mount(el, ctx) {
   $("#wb-undo").onclick = undo; $("#wb-redo").onclick = redo;
   $("#wb-zin").onclick = () => zoomAt(W / 2, H / 2, 1.25);
   $("#wb-zout").onclick = () => zoomAt(W / 2, H / 2, 0.8);
-  $("#wb-zfit").onclick = fit;
-  $("#wb-export").onclick = exportImage;
-  $("#wb-board").onchange = e => switchTo(boards.find(b => b.id === e.target.value));
-  $("#wb-bg").onchange = e => { board.bg = e.target.value; redraw(); save(); };
-  $("#wb-new").onclick = () => { const b = newBoard(); boards.push(b); switchTo(b); save(true); ctx0.toast(`Made "${b.name}"`); };
-  $("#wb-rename").onclick = () => {
-    const sel = $("#wb-board"), inp = document.createElement("input");
-    inp.className = "field"; inp.value = board.name; inp.setAttribute("aria-label", "Board name"); inp.style.width = "150px";
-    sel.replaceWith(inp); inp.focus(); inp.select();
-    let done = false;
-    const finish = ok => { if (done) return; done = true; if (ok && inp.value.trim()) { board.name = inp.value.trim().slice(0, 60); save(true); } inp.replaceWith(sel); renderBoards(); };
-    inp.addEventListener("keydown", e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); });
-    inp.addEventListener("blur", () => finish(true));
-  };
-  $("#wb-clear-wrap").addEventListener("click", e => {
-    if (e.target.id !== "wb-clear") return;
-    if (!board.strokes.length) { ctx0.toast("This board is already empty."); return; }
-    confirmIn("#wb-clear-wrap", "Clear", "Erase everything on this board?", () => { snapshot(); board.strokes = []; redraw(); save(); ctx0.toast("Cleared. Undo brings it back."); });
-  });
-  $("#wb-del-wrap").addEventListener("click", e => {
-    if (e.target.id !== "wb-del") return;
-    confirmIn("#wb-del-wrap", "Delete", `Delete "${esc(board.name)}" on all your devices?`, async () => {
-      const gone = board; await ctx0.store.remove(APP, gone.id);
-      boards = boards.filter(b => b !== gone);
-      if (!boards.length) { const b = newBoard("Board 1"); boards.push(b); await ctx0.store.put(APP, b.id, dataOf(b)); }
-      switchTo(boards[0]); ctx0.toast(`Deleted "${gone.name}"`);
-    });
-  });
+  $("#wb-board").onclick = e => { e.stopPropagation(); menuEl ? closeMenu() : boardMenu(e.currentTarget); };
+  $("#wb-more").onclick = e => { e.stopPropagation(); menuEl ? closeMenu() : moreMenu(e.currentTarget); };
+  document.addEventListener("pointerdown", e => { if (menuEl && !menuEl.contains(e.target) && !e.target.closest("#wb-board,#wb-more")) closeMenu(); });
 
   document.addEventListener("keydown", e => {
     if (!ctx0.isActive() || e.target.matches("input,textarea,select")) return;
     const k = e.key.toLowerCase();
+    if (k === "escape") { closeMenu(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -422,7 +458,6 @@ async function mount(el, ctx) {
     if (k === "-") zoomAt(W / 2, H / 2, 0.8);
   });
   document.addEventListener("keyup", e => { if (e.code === "Space" && spaceDown) { spaceDown = false; setTool(tool); } });
-  window.addEventListener("resize", () => { if (ctx0.isActive()) resize(); });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => redraw());
 
   // boards changed on another device
@@ -433,15 +468,42 @@ async function mount(el, ctx) {
     await loadBoards();
     if (board.id !== curId) { undoStack = []; redoStack = []; }
     else if (ch.ids.includes(curId)) { if (keepStrokes) board.strokes = keepStrokes; else { undoStack = []; redoStack = []; } }
-    renderBoards(); redraw();
+    renderBar(); redraw();
   });
 
   await loadBoards();
-  renderBoards(); setTool("pen"); setStatus("Saved");
-  document.fonts && document.fonts.ready.then(() => redraw());
+  renderBar(); setTool("pen"); setStatus("saved");
+  if (document.fonts) document.fonts.ready.then(() => redraw());
 }
 
-function show() { resize(); }
-function hide() { commitText(); }
+function show() { requestAnimationFrame(resize); }
+function hide() { commitText(); closeMenu(); }
 
-export default { id: APP, name: "Whiteboard", icon: ICON, iconBg: "#f4f1e8", iconBorder: "#d8d2c2", mount, show, hide };
+/* ---------- home-screen widget: preview of the latest board ---------- */
+async function widget(el, ctx) {
+  loadCss();
+  const rows = await ctx.store.list(APP);
+  const latest = rows.filter(r => r.data && Array.isArray(r.data.strokes)).sort((a, b) => b.updated - a.updated)[0];
+  const ago = latest ? timeAgo(latest.updated) : "";
+  el.innerHTML = `<div class="w-k">${ctx.svg("presentation")}Whiteboard</div>
+    <div class="w-thumb">${latest && latest.data.strokes.length ? "<canvas></canvas>" : `<div class="w-empty">Tap to draw</div>`}</div>
+    <div class="w-title">${esc(latest ? latest.data.name : "Board 1")}</div>
+    ${ago ? `<div class="w-sub">Edited ${ago}</div>` : ""}`;
+  const c = el.querySelector("canvas");
+  if (!c) return;
+  requestAnimationFrame(() => {
+    const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+    if (!r.width) return;
+    c.width = Math.round(r.width * d); c.height = Math.round(r.height * d);
+    renderTo(c.getContext("2d"), latest.data.strokes, "blank", c.width, c.height, 10 * d);
+  });
+}
+function timeAgo(t) {
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+export default { id: APP, name: "Whiteboard", icon: "presentation", color: ["#4f7cff", "#2348c9"], dock: true, mount, show, hide, widget };

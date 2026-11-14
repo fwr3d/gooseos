@@ -5,47 +5,50 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>GooseOS</title>
   <meta name="description" content="Your school home screen, with apps inside.">
-  <meta name="theme-color" content="#e9edf5" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d1220" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#dfe6f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon-64.png" type="image/png" sizes="64x64">
-  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="GooseOS">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=Caveat:wght@500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Caveat:wght@500&display=swap">
   <link rel="stylesheet" href="css/styles.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
 
 <div id="home">
-  <div class="screen">
-    <div class="topline">
-      <button class="account" id="account" hidden><i></i><span>Sign in to sync</span></button>
-    </div>
-    <div class="clock">
-      <div class="time" id="time"></div>
+  <div class="wall" aria-hidden="true"></div>
+  <main class="screen">
+    <header class="clock">
       <div class="date" id="date"></div>
-    </div>
+      <div class="time" id="time"></div>
+    </header>
+
+    <section class="widgets" id="widgets" aria-label="Widgets"></section>
     <nav class="apps" id="apps" aria-label="Apps"></nav>
-    <div class="install" id="install" hidden>
+
+    <div class="install glass" id="install" hidden>
+      <img src="icons/apple-touch-icon.png" alt="" width="36" height="36">
       <span id="install-text"></span>
-      <button class="btn" id="install-btn" hidden>Install</button>
-      <button class="btn ghost" id="install-dismiss" aria-label="Dismiss">✕</button>
+      <button class="pill-btn" id="install-btn" hidden>Install</button>
+      <button class="icon-btn" id="install-dismiss" aria-label="Dismiss"></button>
     </div>
-  </div>
+  </main>
+  <nav class="dock glass" id="dock" aria-label="Dock"></nav>
 </div>
 
 <div id="views"></div>
 
 <div class="sheet-back" id="sheet" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
-    <div class="sheet-h"><h2 id="sheet-title">Sync your stuff</h2><button class="btn ghost" id="sheet-close" aria-label="Close">✕</button></div>
+    <div class="sheet-grab" aria-hidden="true"></div>
+    <div class="sheet-h"><h2 id="sheet-title">Settings</h2><button class="icon-btn" id="sheet-close" aria-label="Close"></button></div>
     <div id="sheet-body"></div>
   </div>
 </div>

@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update; installed copies then show
 // "An update is ready" and reload into the new version.
-const VERSION = "v5";
+const VERSION = "v7";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 
@@ -14,10 +14,12 @@ const FILES = [
   "js/store.js",
   "js/sync.js",
   "js/config.js",
+  "js/icons.js",
   "js/apps/index.js",
   "js/apps/whiteboard/whiteboard.js",
   "js/apps/whiteboard/whiteboard.css",
   "icons/favicon-64.png",
+  "icons/source/goose.png",
   "icons/icon-192.png",
   "icons/icon-512.png",
   "icons/apple-touch-icon.png",
