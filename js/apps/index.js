@@ -14,6 +14,7 @@
 import whiteboard from "./whiteboard/whiteboard.js";
 import deadlines from "./deadlines/deadlines.js";
 import milestones from "./milestones/milestones.js";
+import syllabus from "./syllabus/syllabus.js";
 import schedule from "./schedule/schedule.js";
 import reminders from "./reminders/reminders.js";
 import today from "./today/today.js";
@@ -24,6 +25,7 @@ export default [
   whiteboard,
   deadlines,
   milestones,
+  syllabus,
   schedule,
   reminders,
   events,

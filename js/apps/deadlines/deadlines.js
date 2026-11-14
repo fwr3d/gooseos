@@ -48,12 +48,15 @@ export async function knownCourses() {
   return [...seen.values()];
 }
 
+/** Exams get the full reminder ramp: tagged by the syllabus scanner, or named like one. */
+const isExam = d => d.type === "exam" || (/\b(exam|midterm|final)\b/i.test(d.title || "") && !/\bfinal\s+(project|paper|presentation|report|essay)\b/i.test(d.title || ""));
+
 /** Shared agenda (read by Reminders and Today): open deadlines plus ones finished in the last 2 days. */
 export async function agenda() {
   const cutoff = Date.now() - 2 * 864e5;
   return (await loadDeadlines())
     .filter(d => !d.done || (d.due || 0) > cutoff)
-    .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: "deadline", course: d.course || "", done: !!d.done, open: `#${APP}/${d.id}` }));
+    .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: isExam(d) ? "exam" : "deadline", course: d.course || "", done: !!d.done, open: `#${APP}/${d.id}` }));
 }
 
 /** Mark one agenda item done ("deadlines:<id>"). */

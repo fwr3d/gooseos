@@ -1,0 +1,36 @@
+/* Syllabus Scanner (uses the shared .ap-* app styles) */
+.sy-drop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 16px;border:2px dashed var(--line);border-radius:18px;background:var(--panel);text-align:center;color:var(--muted);transition:border-color .15s,background .15s}
+.sy-drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.sy-drop .ic{width:28px;height:28px;color:var(--accent)}
+.sy-drop b{color:var(--ink);font-size:15px}
+.sy-paste{width:100%;min-height:180px;resize:vertical;border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:12px 14px;font:inherit;font-size:14px;line-height:1.45;color:var(--ink)}
+.sy-paste:focus{outline:none;border-color:var(--accent)}
+.sy-or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.sy-or::before,.sy-or::after{content:"";flex:1;height:1px;background:var(--line)}
+.sy-field{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.sy-field .field{font-size:15px;padding:9px 11px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink)}
+.sy-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:520px){.sy-two{grid-template-columns:1fr}}
+
+/* review */
+.sy-sum{display:flex;gap:6px;flex-wrap:wrap}
+.sy-item{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start;padding:11px 12px}
+.sy-item + .sy-item{border-top:1px solid var(--line)}
+.sy-item.off{opacity:.55}
+.sy-item input[type="checkbox"]{width:20px;height:20px;margin:6px 0 0;accent-color:var(--accent-strong)}
+.sy-fields{display:flex;flex-direction:column;gap:6px;min-width:0}
+.sy-row1{display:flex;gap:6px;min-width:0}
+.sy-row1 input[type="text"]{flex:1;min-width:0;font-weight:600}
+.sy-item .field{font-size:14px;padding:6px 9px;border-radius:9px}
+.sy-row2{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sy-row2 select.field{padding-right:4px}
+.sy-flag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.sy-flag.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.sy-flag.dup{background:var(--accent-soft);color:var(--muted)}
+.sy-src{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:italic}
+.sy-foot{position:sticky;bottom:0;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px max(16px,env(safe-area-inset-left,0px)) calc(12px + env(safe-area-inset-bottom,0px));
+  background:var(--glass-strong);border-top:1px solid var(--line);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}
+.sy-foot .pill-btn{padding:10px 16px;font-size:14px}
+.sy-done{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:30px 16px}
+.sy-done .ic{width:40px;height:40px;color:var(--good)}
+.sy-done b{font-size:18px}

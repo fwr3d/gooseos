@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update; installed copies then show
 // "An update is ready" and reload into the new version.
-const VERSION = "v11";
+const VERSION = "v12";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 
@@ -25,6 +25,10 @@ const FILES = [
   "js/apps/milestones/milestones.js",
   "js/apps/milestones/milestones.css",
   "js/apps/milestones/plan.js",
+  "js/apps/syllabus/syllabus.js",
+  "js/apps/syllabus/syllabus.css",
+  "js/apps/syllabus/scan.js",
+  "js/apps/syllabus/pdftext.js",
   "js/apps/schedule/schedule.js",
   "js/apps/schedule/schedule.css",
   "js/apps/reminders/reminders.js",
@@ -43,7 +47,7 @@ const FILES = [
   "icons/apple-touch-icon.png",
 ];
 // Optional files: cached if present, skipped if not.
-const OPTIONAL = ["js/vendor/supabase.js"];
+const OPTIONAL = ["js/vendor/supabase.js", "js/vendor/pdfjs/pdf.min.mjs", "js/vendor/pdfjs/pdf.worker.min.mjs"];
 
 const isLocal = ["localhost", "127.0.0.1"].includes(self.location.hostname);
 
