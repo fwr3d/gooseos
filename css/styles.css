@@ -305,3 +305,20 @@ button.ap-row:hover{background:var(--accent-soft)}
 .h-when{margin-top:auto;font-size:13px;font-weight:700}
 .row .field.h-pick{width:auto;max-width:56%;flex:none;font-size:14px;padding:7px 10px}
 @media (min-width:900px){.widget.h-small{height:150px}}
+/* bigger app icons */
+#apps .app-ic .sq{width:70px;height:70px}
+#apps .app-ic .sq .ic{width:34px;height:34px}
+#apps .app-ic .lb{font-size:12.5px}
+#apps .sq-goose img{width:50px;height:50px}
+@media (min-width:900px){
+  .screen{max-width:960px}
+  #apps{gap:28px 10px}
+  #apps .app-ic .sq{width:96px;height:96px;border-radius:24px}
+  #apps .app-ic .sq .ic{width:46px;height:46px}
+  #apps .app-ic .lb{font-size:15px;font-weight:600}
+  #apps .sq-goose img{width:70px;height:70px}
+  #apps .badge{min-width:26px;height:26px;border-radius:13px;font-size:13.5px;top:-7px;right:-7px}
+}
+#apps{row-gap:16px}
+@media (min-width:900px){#apps{row-gap:28px}.widget.h-small{height:172px}}
+@media (max-width:899px){.screen{padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}}
