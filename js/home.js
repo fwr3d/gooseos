@@ -52,6 +52,9 @@ export const SMALL = {
     el.innerHTML = `<span class="h-k">${esc(active.title)}</span><span class="h-t">${esc(next.title)}</span><span class="h-s">${esc(dueText(next.date))}</span>
       <span class="h-meter"><i style="width:${Math.round(done / active.steps.length * 100)}%"></i></span><span class="h-s">${done}/${active.steps.length} steps</span>`;
   } },
+  wallet: { label: "Wallet", open: "wallet", async render(el) {
+    const a = app("wallet"); if (a && a.widget) await a.widget(el, { store, svg });
+  } },
   whiteboard: { label: "Whiteboard", open: "whiteboard", async render(el) {
     const wb = app("whiteboard"); if (wb && wb.widget) await wb.widget(el, { store, svg });
   } },

@@ -19,6 +19,7 @@ import schedule from "./schedule/schedule.js";
 import reminders from "./reminders/reminders.js";
 import today from "./today/today.js";
 import events from "./events/events.js";
+import wallet from "./wallet/wallet.js";
 
 export default [
   today,
@@ -28,5 +29,6 @@ export default [
   syllabus,
   schedule,
   reminders,
+  wallet,
   events,
 ];
