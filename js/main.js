@@ -5,6 +5,7 @@ import * as store from "./store.js";
 import * as sync from "./sync.js";
 import { svg } from "./icons.js";
 import * as capture from "./capture.js";
+import { renderHome as drawHome, pickerHtml, wirePicker } from "./home.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -32,49 +33,15 @@ const SETTINGS = { id: "settings", name: "Settings", icon: "settings", color: ["
 const allIcons = () => [...apps, SETTINGS];
 const tileStyle = a => `background:linear-gradient(160deg,${a.color[0]},${a.color[1]})`;
 
-/* ---------- home: icons ---------- */
-async function iconHtml(a) {
-  let badge = "";
-  try { badge = a.badge ? (await a.badge()) || "" : ""; } catch (e) { badge = ""; }
-  return `<button class="app-ic" data-open="${a.id}" aria-label="${esc(a.name)}"><span class="sq" style="${tileStyle(a)}">${svg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span><span class="lb">${esc(a.name)}</span></button>`;
-}
-async function renderIcons() {
-  const list = allIcons().filter(a => !a.hidden);
-  $("#apps").innerHTML = (await Promise.all(list.filter(a => !a.dock).map(iconHtml))).join("");
-  $("#dock").innerHTML = (await Promise.all(list.filter(a => a.dock).map(iconHtml))).join("");
-}
-
-/* ---------- home: widgets ---------- */
+/* ---------- home (layout lives in home.js) ---------- */
 let syncState = { status: "off" };
 const SYNC_TEXT = { off: "Saved on this device", "signed-out": "Tap to turn on sync", syncing: "Syncing…", synced: "Synced", offline: "Offline · will sync later", error: "Sync problem · tap" };
 const SYNC_DOT = { synced: "ok", syncing: "busy", offline: "busy", error: "err" };
-function greeting() { const h = new Date().getHours(); return h < 5 ? "Up late," : h < 12 ? "Good morning," : h < 18 ? "Good afternoon," : "Good evening,"; }
-
-function gooseWidget() {
-  return `<button class="widget glass w-goose" data-open="settings" aria-label="Settings and sync">
-    <img src="icons/source/goose.png" alt="">
-    <div><div class="w-hi">${greeting()}</div><div class="w-name">Goose</div></div>
-    <div class="w-sync"><i class="dot ${SYNC_DOT[syncState.status] || ""}"></i><span>${esc(SYNC_TEXT[syncState.status] || "")}</span></div>
-  </button>`;
+async function renderHome() {
+  await drawHome({ settingsApp: SETTINGS, syncState, syncText: SYNC_TEXT[syncState.status] || "", syncDot: SYNC_DOT[syncState.status] || "" });
 }
-async function renderWidgets() {
-  const host = $("#widgets");
-  host.innerHTML = gooseWidget();
-  const goose = host.firstElementChild;
-  // topWidget apps (Today) sit above the Goose widget; hidden apps get no widget
-  for (const a of apps) {
-    if (!a.widget || a.hidden) continue;
-    const el = document.createElement("button");
-    el.className = "widget glass" + (a.wideWidget ? " wide" : ""); el.dataset.open = a.id; el.setAttribute("aria-label", `Open ${a.name}`);
-    if (a.topWidget) host.insertBefore(el, goose); else host.appendChild(el);
-    try { await a.widget(el, { store, svg }); } catch (e) { console.error(e); el.remove(); }
-  }
-}
-function renderGooseWidget() {
-  const old = document.querySelector(".w-goose"); if (!old) return;
-  old.outerHTML = gooseWidget();
-}
-async function renderHome() { await Promise.all([renderIcons(), renderWidgets()]); }
+let goT = null;
+function renderGooseWidget() { if (current) return; clearTimeout(goT); goT = setTimeout(renderHome, 200); }
 
 /* ---------- opening and closing apps ---------- */
 const views = new Map();
@@ -194,6 +161,7 @@ function drawSettings() {
   const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="background:#ff9f1c">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
   $("#sheet-body").innerHTML = `
     <div class="group-h">Sync</div><div class="group">${syncRow}</div>
+    <div id="st-home"></div>
     ${installRow}
     ${hiddenRows()}
     <div class="group-h">About</div>
@@ -203,6 +171,8 @@ function drawSettings() {
   on("#st-sync", () => { sync.syncNow(); toast("Syncing…"); });
   on("#st-out", async () => { await sync.signOut(); toast("Signed out. Your stuff is still on this device."); drawSettings(); });
   on("#st-install", () => $("#install-btn").click());
+  // pick which widgets the home screen shows
+  pickerHtml().then(html => { const box = $("#st-home"); if (!box) return; box.innerHTML = html; wirePicker(box, () => { toast("Home screen updated"); renderHome(); }); });
 }
 
 let pendingEmail = "";
@@ -250,9 +220,7 @@ function friendly(err) {
 
 /* ---------- quick capture ---------- */
 capture.init({ toast });
-const isTouch = matchMedia("(pointer: coarse)").matches;
-$("#quick").innerHTML = `${svg("plus")}<span>Quick add a deadline</span>${isTouch ? "" : `<kbd>Ctrl</kbd><kbd>Space</kbd>`}`;
-$("#quick").onclick = () => capture.open();
+document.addEventListener("click", e => { if (e.target.closest("[data-quick]")) capture.open(); });
 
 /* ---------- start ---------- */
 tick(); setInterval(tick, 10000);
