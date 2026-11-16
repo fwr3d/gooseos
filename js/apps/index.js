@@ -20,6 +20,7 @@ import reminders from "./reminders/reminders.js";
 import today from "./today/today.js";
 import events from "./events/events.js";
 import wallet from "./wallet/wallet.js";
+import reset from "./reset/reset.js";
 
 export default [
   today,
@@ -30,5 +31,6 @@ export default [
   schedule,
   reminders,
   wallet,
+  reset,
   events,
 ];

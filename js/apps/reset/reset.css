@@ -1,0 +1,34 @@
+/* Weekly Reset */
+.rs-steps{display:flex;gap:6px}
+.rs-steps i{flex:1;height:5px;border-radius:3px;background:var(--accent-soft)}
+.rs-steps i.past{background:color-mix(in srgb,var(--accent-strong) 45%,transparent)}
+.rs-steps i.cur{background:var(--accent-strong)}
+.rs-eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rs-h{margin:-6px 0 0;font-family:var(--f-clock);font-weight:800;font-size:clamp(24px,5vw,30px);letter-spacing:-.02em}
+.rs-lead{margin:0;font-size:14.5px;line-height:1.45;color:var(--muted)}
+.rs-lead b{color:var(--ink)}
+.rs-hint{margin:0 4px;font-size:13px;color:var(--muted)}
+.rs-link{color:inherit;text-decoration:none;min-width:0}
+a.ap-row.rs-link:hover{background:var(--accent-soft)}
+.rs-count{float:right;font-variant-numeric:tabular-nums}
+
+.rs-pick{cursor:pointer}
+.rs-pick:hover{background:var(--accent-soft)}
+.rs-box{flex:none;width:24px;height:24px;border-radius:7px;border:2px solid var(--line);display:grid;place-items:center;color:transparent}
+.rs-box .ic{width:15px;height:15px;stroke-width:3}
+.rs-pick.on .rs-box{background:var(--accent-strong);border-color:var(--accent-strong);color:#fff}
+.rs-own{display:flex;gap:8px}
+.rs-own .pill-btn{flex:none}
+.rs-note{resize:vertical;line-height:1.45}
+
+.rs-foot{position:sticky;bottom:0;display:flex;justify-content:space-between;gap:10px;padding:12px 0 calc(4px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--wall-base) 35%)}
+.rs-foot .pill-btn{min-width:110px;padding:11px 18px}
+
+.rs-intro{align-items:flex-start;max-width:520px;margin:12px auto;width:100%}
+.rs-intro h2{margin:0;font-size:21px}
+.rs-ic{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(160deg,#38bdf8,#0369a1);color:#fff}
+.rs-ic .ic{width:28px;height:28px}
+.rs-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.rs-head h1{margin:0;font-family:var(--f-clock);font-weight:800;font-size:clamp(24px,5vw,32px);letter-spacing:-.02em;line-height:1.05}
+.rs-quote{font-size:15px;line-height:1.45;border-left:3px solid var(--accent-strong)}
+.rs-intro .rs-hint{margin:0}

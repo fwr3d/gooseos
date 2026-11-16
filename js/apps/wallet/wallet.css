@@ -74,3 +74,5 @@
 .wl-catbar i{display:block;height:100%;border-radius:3px}
 .wl-pct{font-size:12.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
 .h-big small{font-size:.45em;font-weight:700;color:var(--muted);margin-left:2px}
+.wl-next{text-decoration:none;color:inherit}
+.wl-next:hover{background:var(--accent-soft)}

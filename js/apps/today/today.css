@@ -33,3 +33,4 @@
 .w-td-foot span{display:inline-flex;align-items:center;gap:5px;min-width:0}
 .w-td-foot .ic{width:13px;height:13px}
 .w-td-foot b{color:var(--on-wall);font-weight:600}
+.td-note{gap:4px;font-size:15px;line-height:1.45;border-left:3px solid #0ea5e9}

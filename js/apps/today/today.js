@@ -12,6 +12,7 @@ import apps from "../index.js";
 import * as agenda from "../../agenda.js";
 import { status as classStatus, colorOf, fmtTime, inTime, meetingsOn } from "../schedule/schedule.js";
 import { dueLabel } from "../deadlines/parse.js";
+import { forToday as resetToday, togglePin } from "../reset/reset.js";
 
 const APP = "today";
 const EVENING = 20;          // 8 PM: switch to "Tomorrow"
@@ -34,7 +35,8 @@ async function summaries() {
 async function gather(now = Date.now()) {
   const evening = new Date(now).getHours() >= EVENING;
   const t0 = dayStart(now), t1 = addDays(now, 1), t2 = addDays(now, 2), t4 = addDays(now, 4);
-  const [items, cls, sums, missed] = await Promise.all([agenda.list(), classStatus(now), summaries(), store.get("reminders", "missed")]);
+  const [items, cls, sums, missed, reset] = await Promise.all([agenda.list(), classStatus(now), summaries(), store.get("reminders", "missed"),
+    resetToday(now).catch(e => { console.error(e); return { pins: [], note: "", nudge: false }; })]);
   const todo = items.filter(i => i.due && i.kind !== "ping");
   const late = todo.filter(i => i.due < now);
   const today = todo.filter(i => i.due >= now && i.due < t1);
@@ -44,7 +46,7 @@ async function gather(now = Date.now()) {
   const workMin = focusList.concat(evening ? [] : late).reduce((s, i) => s + (i.estMin || 0), 0);
   const tomorrowClasses = meetingsOn(cls.courses, cls.sem, t1 + 12 * 3600e3);
   const missedList = ((missed && missed.list) || []).filter(m => now - m.at < 2 * 864e5);
-  return { now, evening, late, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0 };
+  return { now, evening, late, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset };
 }
 
 function pill(i, now) {
@@ -110,6 +112,13 @@ async function render() {
 
   if (g.missedList.length) parts.push(`<button class="ap-card ap-row td-missed" data-go="#reminders"><span class="tile-ic" style="background:#d23c41">${svg("bell")}</span><span class="grow"><span class="t">${g.missedList.length} reminder${g.missedList.length === 1 ? "" : "s"} came due while GooseOS was closed</span><span class="s">${esc(g.missedList.slice(0, 3).map(m => m.title).join(" · "))}</span></span>${svg("chevronRight")}</button>`);
 
+  const rs = g.reset;
+  if (rs.nudge) parts.push(`<button class="ap-card ap-row" data-go="#reset"><span class="tile-ic" style="background:linear-gradient(160deg,#38bdf8,#0369a1)">${svg("listChecks")}</span><span class="grow"><span class="t">Plan next week</span><span class="s">Five minutes: what's due, what's behind, your top 3.</span></span>${svg("chevronRight")}</button>`);
+  if (rs.note) parts.push(`<div class="ap-card pad td-note"><span class="td-eyebrow">From Sunday you</span><span>${esc(rs.note)}</span></div>`);
+  if (rs.pins.length) parts.push(`<section class="ap-sec"><h3>Must do this week<span class="n">${rs.pins.filter(p => p.done).length}/${rs.pins.length}</span></h3><div class="ap-card">${rs.pins.map(p => `<div class="ap-row ${p.done ? "done" : ""}">
+      <button class="ap-check" data-act="pin" data-week="${rs.week}" data-pin="${esc(p.id)}" aria-label="${p.done ? "Done" : "Mark done"}">${svg("check")}</button>
+      <button class="grow td-open" data-go="${esc(p.open)}"><span class="t">${esc(p.title)}</span>${p.sub ? `<span class="s">${esc(p.sub)}</span>` : ""}</button></div>`).join("")}</div></section>`);
+
   if (g.late.length) parts.push(`<section class="ap-sec bad"><h3>Overdue<span class="n">${g.late.length}</span></h3><div class="ap-card">${g.late.map(i => itemRow(i, now)).join("")}</div></section>`);
 
   const heavy = g.workMin > HEAVY_MIN ? `<span class="ap-pill warn">about ${Math.round(g.workMin / 60)}h of planned work</span>` : "";
@@ -142,6 +151,10 @@ async function mount(el, ctx) {
     const go = e.target.closest("[data-go]");
     if (go) { location.hash = go.dataset.go.replace(/^#/, ""); return; }
     const b = e.target.closest("[data-act]"); if (!b) return;
+    if (b.dataset.act === "pin") {
+      if (b.closest(".ap-row").classList.contains("done")) return;
+      await togglePin(+b.dataset.week, b.dataset.pin); ctx0.toast("Must-do done."); render(); return;
+    }
     const key = b.closest("[data-key]").dataset.key;
     if (b.dataset.act === "done") {
       await agenda.complete(key);
