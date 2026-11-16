@@ -321,4 +321,11 @@ button.ap-row:hover{background:var(--accent-soft)}
 }
 #apps{row-gap:16px}
 @media (min-width:900px){#apps{row-gap:28px}.widget.h-small{height:172px}}
-@media (max-width:899px){.screen{padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}}
+@media (max-width:899px){
+  /* tighter spacing, and the two small widgets give up height on short phones so the wide widget clears the dock */
+  .screen{gap:14px;padding-top:calc(36px + env(safe-area-inset-top,0px));padding-bottom:calc(120px + env(safe-area-inset-bottom,0px))}
+  #apps{row-gap:12px}
+  .widget.h-small{height:clamp(140px,calc(100dvh - 639px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px)),164px)}
+}
+/* inside an app there's no dock to clear, so toasts sit at the bottom (Whiteboard and Syllabus keep their own bottom bars clear) */
+body:has(.view:not([hidden]):not([data-app="whiteboard"]):not([data-app="syllabus"])) .toast{bottom:calc(20px + env(safe-area-inset-bottom,0px))}

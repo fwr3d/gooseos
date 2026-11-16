@@ -69,11 +69,12 @@ export const SMALL = {
 /* ---------- wide widgets (pick one) ---------- */
 export const WIDE = {
   week: { label: "This week", open: "today", async render(el) {
-    const items = (await agendaList()).filter(i => i.due && i.kind !== "ping");
+    // overdue means past due right now (same as the Due next widget); the day bubbles count what's still ahead
+    const now = Date.now(), all = (await agendaList()).filter(i => i.due && i.kind !== "ping");
+    const items = all.filter(i => i.due >= now), late = all.length - items.length;
     const d0 = new Date(); d0.setHours(0, 0, 0, 0);
     const days = [...Array(7)].map((_, i) => { const d = new Date(d0); d.setDate(d.getDate() + i); return d; });
     const count = d => items.filter(i => i.due >= +d && i.due < +d + 864e5).length;
-    const late = items.filter(i => i.due < +d0).length;
     const total = days.reduce((n, d) => n + count(d), 0);
     el.innerHTML = `<span class="h-k">This week · ${total} due${late ? ` · <b class="h-late-k">${late} overdue</b>` : ""}</span>
       <div class="h-week">${days.map((d, i) => { const n = count(d); return `<div class="h-day ${i === 0 ? "today" : ""}"><span>${d.toLocaleDateString(undefined, { weekday: "short" })}</span><b class="${n >= 2 ? "busy" : n ? "some" : "none"}">${n}</b></div>`; }).join("")}</div>`;
