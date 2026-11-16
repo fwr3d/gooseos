@@ -6,8 +6,6 @@
 .wl-big.over{color:var(--bad)}
 .wl-meter{height:12px}
 .wl-sub{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
-.wl-going{display:flex;flex-direction:column;gap:6px;margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
-.wl-going .wl-meter{height:8px}
 
 .wl-quick{margin-top:4px}
 .wl-cats{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0}
@@ -57,11 +55,22 @@
 .wl-col.cur .wl-x{color:var(--ink);font-weight:700}
 .wl-budget-line{position:absolute;left:0;right:0;bottom:calc(18px + (100% - 36px) * var(--line) / 100%);border-top:2px dashed color-mix(in srgb,var(--ink) 45%,transparent);pointer-events:none}
 
-.wl-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.wl-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .wl-stats .ap-card{display:flex;flex-direction:column;gap:4px;min-width:0}
 .wl-stats .wl-k{font-size:10.5px}
-.wl-stats .ap-hint{padding:0}
 .wl-stats b{font-family:var(--f-clock);font-size:22px;font-weight:800}
 .wl-rank{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);font-weight:800;font-size:13px}
-@media (max-width:420px){.wl-stats{grid-template-columns:1fr 1fr}.wl-stats .ap-card:last-child{grid-column:span 2}}
-.wl-setup .ap-hint{padding:0;margin:0}
+.wl-note{margin:0;font-size:13px;line-height:1.45;color:var(--muted)}
+.wl-opt{font-weight:500;color:var(--muted)}
+.wl-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wl-month{display:flex;flex-direction:column;gap:6px;margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
+.wl-month b{color:var(--ink)}
+.wl-meter.thin{height:6px}
+.wl-ended{display:flex;align-items:center;gap:10px;font-size:14px}
+.wl-ended .ic{flex:none;color:var(--muted)}
+.wl-ended b.good{color:var(--good)} .wl-ended b.bad{color:var(--bad)}
+.wl-cat-row .grow{display:flex;flex-direction:column;gap:5px}
+.wl-catbar{display:block;height:5px;border-radius:3px;background:var(--accent-soft);overflow:hidden}
+.wl-catbar i{display:block;height:100%;border-radius:3px}
+.wl-pct{font-size:12.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
+.h-big small{font-size:.45em;font-weight:700;color:var(--muted);margin-left:2px}

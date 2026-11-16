@@ -1,64 +1,107 @@
-// Wallet: a weekly food budget you log by hand (no bank login), plus a Recap of
-// where the money went. Two tabs, same data.
+// Wallet: a monthly allowance you log by hand (no bank login). Every purchase
+// comes out of one pot, and Wallet tells you what's safe to spend per day and
+// this week. Two tabs, same data: Budget and Recap.
 //
 // Saved items:
-//   app "wallet", id "settings": { foodCents, goingOutCents, weekStart: "mon" | "sun" }
-//   app "wallet", any other id:  one purchase { cents, cat, place, at (ms), note }
-// Food out, Delivery and Groceries count toward the food budget. Going out has
-// its own optional cap. Other counts toward neither.
+//   app "wallet", id "settings": { monthlyCents, payday (1-28), weekStart: "mon" | "sun",
+//                                  startLeftCents?, startAt? }
+//     startLeftCents/startAt: "I had this much left at this moment". Used for the
+//     month it was typed in, so you can start mid-month. Later months start from monthlyCents.
+//   app "wallet", any other id: one purchase { cents, cat, place, at (ms), note }
+// A month runs from payday to the day before the next payday, even if the
+// deposit lands a few days late. Leftover money does not roll over.
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
 
 const APP = "wallet", D = 864e5;
 const CATS = {
-  food: { label: "Food out", color: "#f59e0b", food: true },
-  delivery: { label: "Delivery", color: "#ef4444", food: true },
-  groceries: { label: "Groceries", color: "#22a45d", food: true },
-  going: { label: "Going out", color: "#8b5cf6" },
+  groceries: { label: "Groceries", color: "#22a45d" },
+  food: { label: "Food out", color: "#f59e0b" },
+  delivery: { label: "Delivery", color: "#ef4444" },
+  alcohol: { label: "Alcohol", color: "#0ea5e9" },
+  weed: { label: "Weed", color: "#65a30d" },
+  nicotine: { label: "Nicotine", color: "#a855f7" },
+  going: { label: "Going out", color: "#ec4899" },
   other: { label: "Other", color: "#64748b" },
 };
+const cat = k => CATS[k] || CATS.other;
 const KEYWORDS = [
+  [/vape|zyn|juul|nic\b|nicotine|pouch|cig|elf ?bar|geek ?bar|lost mary|smoke shop/i, "nicotine"],
+  [/dispensary|weed|\bcart\b|pre-?roll|edible|gumm|flower|thc|\bdab\b|\bpen\b/i, "weed"],
+  [/liquor|beer|wine|vodka|tequila|whiskey|rum|seltzer|white ?claw|truly|\bsix\b|30 ?rack|abc store/i, "alcohol"],
   [/doordash|uber ?eats|grubhub|postmates|delivery/i, "delivery"],
   [/kroger|walmart|target|aldi|meijer|costco|trader|whole foods|grocer|market|sam'?s club/i, "groceries"],
-  [/bar|club|ticket|movie|cinema|concert|bowling|uber|lyft|party/i, "going"],
+  [/chipotle|panera|mcdonald|starbucks|jimmy ?john|subway|wendy|taco bell|chick-?fil|burger|pizza|domino|papa john|five guys|qdoba|panda|dunkin|coffee|caf[eé]|wingstop|cane'?s|culver|popeyes|kfc|sonic|arby|noodles|potbelly|jersey mike|sbarro|ihop|waffle|diner|grill|sushi|ramen|pho\b|bagel|donut|smoothie|boba/i, "food"],
+  [/\bbar\b|club|ticket|movie|cinema|concert|bowling|party/i, "going"],
 ];
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const money = c => `$${(Math.abs(c) / 100).toLocaleString(undefined, { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
-const whole = c => `$${Math.round(Math.abs(c) / 100).toLocaleString()}`;
-const toCents = v => { const n = parseFloat(String(v).replace(/[$,\s]/g, "")); return isFinite(n) && n > 0 ? Math.round(n * 100) : 0; };
+const money = c => `${c < 0 ? "−" : ""}$${(Math.abs(c) / 100).toLocaleString(undefined, { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+const whole = c => `$${(c >= 0 ? Math.floor(c / 100) : Math.ceil(-c / 100)).toLocaleString()}`;   // never shows more than is there
+const daily = c => c < 1000 ? `$${(Math.floor(c) / 100).toFixed(2)}` : whole(c);   // safe-to-spend: cents under $10, rounded down
+const toCents = v => { const n = parseFloat(String(v).replace(/[$,\s]/g, "")); return isFinite(n) && n >= 0 ? Math.round(n * 100) : NaN; };
 const dayStart = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return +d; };
 const addDays = (t, n) => { const d = new Date(dayStart(t)); d.setDate(d.getDate() + n); return +d; };
+const daysBetween = (a, b) => Math.round((dayStart(b) - dayStart(a)) / D);
 const ymd = t => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const wd = (t, style = "short") => new Date(t).toLocaleDateString(undefined, { weekday: style });
-const titleCase = s => s === s.toLowerCase() ? s.replace(/\b[a-z]/g, c => c.toUpperCase()) : s;
+const md = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const ord = n => n + ([11, 12, 13].includes(n) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"));
+const titleCase =s => s === s.toLowerCase() ? s.replace(/\b[a-z]/g, c => c.toUpperCase()) : s;
 
 /* ---------- data ---------- */
-async function getSettings() { return await store.get(APP, "settings"); }
+async function getSettings() { const s = await store.get(APP, "settings"); return s && s.monthlyCents ? s : null; }
 async function purchases() {
   return (await store.list(APP)).filter(r => r.id !== "settings" && r.data && r.data.cents)
     .map(r => ({ id: r.id, ...r.data })).sort((a, b) => b.at - a.at);
 }
+const spent = (list, from, to) => list.reduce((n, p) => p.at >= from && p.at < to ? n + p.cents : n, 0);
+
 /** Midnight on the first day of the week that holds t. */
 function weekOf(t, ws = "mon") {
   const d = dayStart(t), dow = new Date(d).getDay();
   return addDays(d, -(ws === "sun" ? dow : (dow + 6) % 7));
 }
-function weekStats(list, start, s) {
-  const end = addDays(start, 7), items = list.filter(p => p.at >= start && p.at < end);
-  const by = Object.fromEntries(Object.keys(CATS).map(k => [k, 0]));
-  for (const p of items) by[CATS[p.cat] ? p.cat : "other"] += p.cents;
-  const food = by.food + by.delivery + by.groceries;
-  return { start, end, items, by, food, going: by.going, total: items.reduce((n, p) => n + p.cents, 0), under: !s || !s.foodCents || food <= s.foodCents };
+/** The allowance month holding t: payday up to (not including) the next payday. */
+function periodOf(t, payday = 1) {
+  const pd = Math.min(28, Math.max(1, payday | 0)), d = new Date(t);
+  let start = new Date(d.getFullYear(), d.getMonth(), pd);
+  if (dayStart(t) < +start) start = new Date(d.getFullYear(), d.getMonth() - 1, pd);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, pd);
+  return { start: +start, end: +end, days: daysBetween(start, end) };
 }
-/** Where you are this week. Used by the app, the widget, Today and the home screen. */
+const periodName = (p, payday) => payday === 1
+  ? new Date(p.start).toLocaleDateString(undefined, { month: "long" })
+  : `${md(p.start)} – ${md(p.end - D)}`;
+/** What a month started with: the typed "left right now" for the month you set up in, else the allowance. */
+function baseOf(s, per) {
+  if (s.startAt && s.startAt >= per.start && s.startAt < per.end) return { from: s.startAt, cents: s.startLeftCents || 0, partial: true };
+  return { from: per.start, cents: s.monthlyCents, partial: false };
+}
+/** Did you track this month at all? (Months before you set Wallet up don't count.) */
+const tracked = (s, per) => !s.startAt || per.end > s.startAt;
+
+/** Where you are right now. Used by the app, the widget, Today and Reminders. */
 async function status(now = Date.now()) {
   const s = await getSettings(); if (!s) return null;
-  const list = await purchases(), wk = weekStats(list, weekOf(now, s.weekStart), s);
-  const daysLeft = Math.max(1, Math.round((wk.end - dayStart(now)) / D));
-  const left = s.foodCents - wk.food, pct = s.foodCents ? Math.round(wk.food / s.foodCents * 100) : 0;
-  return { s, list, wk, left, pct, perDay: left > 0 ? left / daysLeft : 0, lastDay: daysLeft === 1 ? "today" : `until ${wd(wk.end - D)}`, tone: pct > 100 ? "bad" : pct >= 75 ? "warn" : "good" };
+  const list = await purchases();
+  const per = periodOf(now, s.payday), base = baseOf(s, per);
+  const left = base.cents - spent(list, base.from, per.end);
+  const daysLeft = Math.max(1, daysBetween(now, per.end));
+  const perDay = Math.max(0, left) / daysLeft;
+  // this week's share: what was left when the week (or your tracking) began, split over the days left then
+  const wStart = weekOf(now, s.weekStart), b = Math.max(wStart, base.from);
+  const weekSpent = spent(list, b, per.end);
+  const leftAtB = left + weekSpent, daysAtB = Math.max(1, daysBetween(b, per.end));
+  // a full week's worth at the pace you had when the week began, never more than was left
+  const weekShare = Math.min(Math.max(0, leftAtB), Math.max(0, leftAtB) / daysAtB * 7);
+  const weekEnd = Math.min(addDays(wStart, 7), per.end);
+  const showWeek = daysBetween(b, weekEnd) >= 3;   // a 1-2 day stub of a week (just set up, or month ending) gets no week bar
+  const weekTone = weekSpent > weekShare ? "bad" : weekSpent > weekShare * 0.75 ? "warn" : "good";
+  const pace = s.monthlyCents / per.days;
+  const tone = left < 0 ? "bad" : perDay < pace * 0.8 ? "warn" : "good";   // month pace only
+  return { s, list, per, base, left, daysLeft, perDay, weekSpent, weekShare, weekEnd, showWeek, weekTone, tone };
 }
 const toneColor = t => t === "bad" ? "var(--bad)" : t === "warn" ? "var(--warn)" : "var(--good)";
 
@@ -68,8 +111,8 @@ function usuals(list, now = Date.now()) {
   for (const p of list) {
     if (!p.place || p.at < now - 75 * D) continue;
     const k = `${p.place.toLowerCase()}|${p.cat}`;
-    const g = groups.get(k) || { place: p.place, cat: p.cat, n: 0, score: 0, amounts: new Map(), last: 0 };
-    g.n++; g.score += 1 + Math.max(0, 1 - (now - p.at) / (30 * D));
+    const g = groups.get(k) || { place: p.place, cat: p.cat, score: 0, amounts: new Map(), last: 0 };
+    g.score += 1 + Math.max(0, 1 - (now - p.at) / (30 * D));
     g.amounts.set(p.cents, (g.amounts.get(p.cents) || 0) + 1);
     if (p.at > g.last) { g.last = p.at; g.place = p.place; g.lastCents = p.cents; }
     groups.set(k, g);
@@ -83,8 +126,8 @@ function usuals(list, now = Date.now()) {
 function guessCat(place, list) {
   const seen = list.find(p => p.place && p.place.toLowerCase() === place.toLowerCase());
   if (seen) return seen.cat;
-  for (const [re, cat] of KEYWORDS) if (re.test(place)) return cat;
-  return "food";
+  for (const [re, c] of KEYWORDS) if (re.test(place)) return c;
+  return "other";
 }
 /** "13 chipotle", "chipotle 12.50", "$8 kroger" */
 function parseQuick(text) {
@@ -92,9 +135,8 @@ function parseQuick(text) {
   if (!m) return null;
   const cents = toCents(m[1].replace(",", "."));
   const place = titleCase(text.replace(m[0], "").replace(/\s+/g, " ").trim());
-  return cents ? { cents, place } : null;
+  return cents > 0 ? { cents, place } : null;
 }
-
 async function addPurchase(p) {
   const id = "p-" + Date.now().toString(36) + uid();
   await store.put(APP, id, { cents: p.cents, cat: p.cat, place: p.place || "", at: p.at || Date.now(), note: p.note || "" });
@@ -102,7 +144,7 @@ async function addPurchase(p) {
 }
 
 /* ---------- view ---------- */
-let ctx0, root, tab = "budget", recapWeek = 0, pickCat = "auto";
+let ctx0, root, tab = "budget", recapMonth = 0, pickCat = "auto";
 const $ = s => root.querySelector(s);
 function setRoute() { history.replaceState(null, "", `${location.pathname}${location.search}#wallet${tab === "recap" ? "/recap" : ""}`); }
 
@@ -120,86 +162,106 @@ async function render() {
   if (tab === "recap") renderRecap(st); else renderBudget(st);
 }
 
+const settingsFields = (s, setup) => `
+  <label class="wl-f">Monthly allowance<input class="field" name="monthly" inputmode="decimal" required value="${s.monthlyCents ? s.monthlyCents / 100 : ""}" placeholder="$400"></label>
+  <div class="wl-two">
+    <label class="wl-f">Payday (day of month)<select class="field" name="payday">${[...Array(28)].map((_, i) => `<option value="${i + 1}" ${(s.payday || 1) === i + 1 ? "selected" : ""}>${ord(i + 1)}</option>`).join("")}</select></label>
+    <label class="wl-f">Week starts<select class="field" name="ws"><option value="mon" ${s.weekStart !== "sun" ? "selected" : ""}>Monday</option><option value="sun" ${s.weekStart === "sun" ? "selected" : ""}>Sunday</option></select></label>
+  </div>
+  <label class="wl-f">${setup ? "How much of this month's money do you have left right now?" : "Correct what's left right now <span class=\"wl-opt\">(optional)</span>"}
+    <input class="field" name="left" inputmode="decimal" ${setup ? "required" : ""} placeholder="${setup ? "$212" : "Leave empty to keep the math as is"}"></label>`;
+
 function renderSetup() {
   $("#wl-body").innerHTML = `
     <form class="ap-card pad wl-setup" id="wl-setup">
       <span class="wl-setup-ic">${svg("wallet")}</span>
-      <h2>Set your weekly food budget</h2>
-      <p class="ap-hint">Covers eating out, delivery and groceries. Log a purchase in a tap, and see what's left until the week resets.</p>
-      ${settingsFields({ foodCents: 0, goingOutCents: 0, weekStart: "mon" })}
+      <h2>Set up your monthly money</h2>
+      <p class="wl-note">Everything you buy comes out of one monthly pot. Wallet works out what's safe to spend each day and this week.</p>
+      ${settingsFields({ monthlyCents: 0, payday: 1, weekStart: "mon" }, true)}
+      <p class="wl-note">Bank a few days late? That's fine. The month still counts from payday.</p>
       <button class="pill-btn" type="submit">Start</button>
     </form>`;
   $("#wl-setup").onsubmit = e => { e.preventDefault(); saveSettingsForm(e.target); };
 }
-const settingsFields = s => `
-  <label class="wl-f">Weekly food budget<input class="field" name="food" inputmode="decimal" required value="${s.foodCents ? s.foodCents / 100 : ""}" placeholder="$100"></label>
-  <label class="wl-f">Going-out cap (optional)<input class="field" name="going" inputmode="decimal" value="${s.goingOutCents ? s.goingOutCents / 100 : ""}" placeholder="No cap"></label>
-  <label class="wl-f">Week starts on<select class="field" name="ws"><option value="mon" ${s.weekStart !== "sun" ? "selected" : ""}>Monday</option><option value="sun" ${s.weekStart === "sun" ? "selected" : ""}>Sunday</option></select></label>`;
 async function saveSettingsForm(f) {
-  const foodCents = toCents(f.food.value);
-  if (!foodCents) { f.food.focus(); return false; }
-  await store.put(APP, "settings", { foodCents, goingOutCents: toCents(f.going.value), weekStart: f.ws.value });
+  const monthlyCents = toCents(f.monthly.value);
+  if (!(monthlyCents > 0)) { f.monthly.focus(); return false; }
+  const prev = (await store.get(APP, "settings")) || {};
+  const next = { monthlyCents, payday: +f.payday.value || 1, weekStart: f.ws.value, startLeftCents: prev.startLeftCents, startAt: prev.startAt };
+  if (f.left.value.trim() !== "") {
+    const l = toCents(f.left.value); if (isNaN(l)) { f.left.focus(); return false; }
+    next.startLeftCents = l; next.startAt = Date.now();
+  } else if (!prev.monthlyCents) { f.left.focus(); return false; }
+  delete next.foodCents;
+  await store.put(APP, "settings", next);
   render(); return true;
 }
 function openSettings(s) {
   const back = document.createElement("div"); back.className = "ap-back";
-  back.innerHTML = `<form class="ap-sheet" role="dialog" aria-modal="true"><h2>Wallet settings</h2>${settingsFields(s)}
+  back.innerHTML = `<form class="ap-sheet" role="dialog" aria-modal="true"><h2>Wallet settings</h2>${settingsFields(s, false)}
     <div class="acts"><span></span><span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">Save</button></span></div></form>`;
   root.appendChild(back);
   const f = back.querySelector("form"), close = () => back.remove();
   back.addEventListener("click", e => { if (e.target === back) close(); });
   f.querySelector('[data-act="cancel"]').onclick = close;
-  f.onsubmit = async e => { e.preventDefault(); if (await saveSettingsForm(f)) { close(); ctx0.toast("Budget saved"); } };
+  f.onsubmit = async e => { e.preventDefault(); if (await saveSettingsForm(f)) { close(); ctx0.toast("Saved"); } };
 }
 
-function meter(spent, cap, tone) {
-  const pct = cap ? Math.min(100, Math.round(spent / cap * 100)) : 0;
-  return `<div class="ap-bar-meter wl-meter"><i style="width:${pct}%;background:${toneColor(tone)}"></i></div>`;
+function meter(used, cap, tone, cls = "") {
+  const pct = cap > 0 ? Math.min(100, Math.round(used / cap * 100)) : used > 0 ? 100 : 0;
+  return `<div class="ap-bar-meter wl-meter ${cls}"><i style="width:${pct}%;background:${toneColor(tone)}"></i></div>`;
 }
 
 function renderBudget(st) {
-  const { s, list, wk, left, perDay, lastDay, tone } = st;
-  const going = s.goingOutCents ? (() => { const p = wk.going / s.goingOutCents * 100; return { tone: p > 100 ? "bad" : p >= 75 ? "warn" : "good" }; })() : null;
+  const { s, list, per, base, left, daysLeft, perDay, weekSpent, weekShare, weekEnd, tone } = st;
   const chips = usuals(list);
+  const weekLeft = weekShare - weekSpent;
+  const shown = list.filter(p => p.at >= weekOf(Date.now(), s.weekStart));
   const days = [];
-  for (const p of wk.items) { const d = dayStart(p.at); let g = days.find(x => x.d === d); if (!g) days.push(g = { d, items: [] }); g.items.push(p); }
+  for (const p of shown) { const d = dayStart(p.at); let g = days.find(x => x.d === d); if (!g) days.push(g = { d, items: [] }); g.items.push(p); }
+  const lastWeekDay = wd(weekEnd - D);
   $("#wl-body").innerHTML = `
     <section class="ap-card pad wl-hero">
-      <span class="wl-k">Food this week</span>
-      <div class="wl-big ${left < 0 ? "over" : ""}">${whole(left)}<span>${left < 0 ? "over" : "left"}</span></div>
-      ${meter(wk.food, s.foodCents, tone)}
-      <div class="wl-sub"><span>${money(wk.food)} of ${whole(s.foodCents)}</span><span>${left > 0 ? (lastDay === "today" ? "last day of the week" : `about ${whole(perDay)}/day ${lastDay}`) : left === 0 ? `right at budget` : `new week starts ${wd(wk.end)}`}</span></div>
-      ${going ? `<div class="wl-going"><span class="wl-sub"><span>Going out</span><span>${money(wk.going)} of ${whole(s.goingOutCents)}</span></span>${meter(wk.going, s.goingOutCents, going.tone)}</div>` : ""}
+      <span class="wl-k">Safe to spend</span>
+      <div class="wl-big ${left < 0 ? "over" : ""}">${left < 0 ? `${whole(left)}<span>over for the month</span>` : `${daily(perDay)}<span>/day</span>`}</div>
+      ${st.showWeek ? `${meter(weekSpent, weekShare, st.weekTone)}
+      <div class="wl-sub"><span>This week ${money(weekSpent)} of ${whole(weekShare)}</span><span>${weekLeft >= 0 ? `${whole(weekLeft)} left${daysBetween(Date.now(), weekEnd) > 1 ? ` through ${lastWeekDay}` : " today"}` : `${whole(weekLeft)} over this week`}</span></div>`
+      : `<div class="wl-sub"><span>Weekly budget starts ${wd(weekEnd, "long")}</span><span>about ${whole(Math.min(Math.max(0, left), perDay * 7))}/week</span></div>`}
+      <div class="wl-month">
+        <div class="wl-sub"><span><b>${left < 0 ? `${whole(left)} over` : `${whole(left)} left`}</b> of ${whole(base.partial ? base.cents : s.monthlyCents)}${base.partial ? " (since you started)" : ""}</span><span>${daysLeft} day${daysLeft === 1 ? "" : "s"} left in ${periodName(per, s.payday)}</span></div>
+        ${meter(base.cents - left, base.cents, tone, "thin")}
+      </div>
     </section>
 
     <form class="ap-input wl-quick" id="wl-quick" autocomplete="off">
-      ${svg("plus")}<input id="wl-text" placeholder="13 chipotle" aria-label="Amount and place, like 13 chipotle" enterkeyhint="done">
+      ${svg("plus")}<input id="wl-text" placeholder="45 kroger" aria-label="Amount and place, like 45 kroger" enterkeyhint="done">
       <button class="pill-btn" type="submit">Add</button>
     </form>
     <div class="wl-cats" role="group" aria-label="Category">
       ${[["auto", "Auto"], ...Object.entries(CATS).map(([k, v]) => [k, v.label])].map(([k, l]) => `<button type="button" data-cat="${k}" aria-pressed="${pickCat === k}">${k !== "auto" ? `<i style="background:${CATS[k].color}"></i>` : ""}${l}</button>`).join("")}
     </div>
 
-    ${chips.length ? `<section class="ap-sec"><h3>Usual</h3><div class="wl-chips">${chips.map((c, i) => `<button class="wl-chip" data-usual="${i}"><i style="background:${(CATS[c.cat] || CATS.other).color}"></i><b>${esc(c.place)}</b><span>${money(c.cents)}</span></button>`).join("")}</div></section>`
-      : `<p class="ap-hint wl-tip">Type an amount and a place, like <b>13 chipotle</b>. Places you go often turn into one-tap buttons here.</p>`}
+    ${chips.length ? `<section class="ap-sec"><h3>Usual</h3><div class="wl-chips">${chips.map((c, i) => `<button class="wl-chip" data-usual="${i}"><i style="background:${cat(c.cat).color}"></i><b>${esc(c.place)}</b><span>${money(c.cents)}</span></button>`).join("")}</div></section>`
+      : `<p class="wl-note wl-tip">Type an amount and a place, like <b>45 kroger</b>. Pick a category above, or leave it on Auto. Places you buy from often turn into one-tap buttons here.</p>`}
 
-    <section class="ap-sec"><h3>This week<span class="n">${wk.items.length}</span></h3>
+    <section class="ap-sec"><h3>This week<span class="n">${shown.length}</span></h3>
       ${days.length ? `<div class="ap-card">${days.map(g => `<div class="wl-day"><span>${new Date(g.d).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</span><span>${money(g.items.reduce((n, p) => n + p.cents, 0))}</span></div>
-        ${g.items.map(p => `<div class="ap-row wl-row" data-p="${p.id}"><i class="ap-swatch" style="background:${(CATS[p.cat] || CATS.other).color}"></i>
-          <span class="grow"><span class="t">${esc(p.place || (CATS[p.cat] || CATS.other).label)}</span><span class="s">${esc((CATS[p.cat] || CATS.other).label)} · ${new Date(p.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></span>
+        ${g.items.map(p => `<div class="ap-row wl-row" data-p="${p.id}"><i class="ap-swatch" style="background:${cat(p.cat).color}"></i>
+          <span class="grow"><span class="t">${esc(p.place || cat(p.cat).label)}</span><span class="s">${esc(cat(p.cat).label)} · ${new Date(p.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}${p.at < base.from ? " · before you started" : ""}</span></span>
           <b class="wl-amt">${money(p.cents)}</b><button class="icon-btn" data-rm="${p.id}" aria-label="Remove">${svg("x")}</button></div>`).join("")}`).join("")}</div>`
-      : `<div class="ap-card"><div class="ap-empty"><b>Nothing logged this week</b>Your week runs ${wd(wk.start, "long")} to ${wd(wk.end - D, "long")}.</div></div>`}
+      : `<div class="ap-card"><div class="ap-empty"><b>Nothing logged this week</b>Your week runs ${wd(weekOf(Date.now(), s.weekStart), "long")} to ${wd(addDays(weekOf(Date.now(), s.weekStart), 6), "long")}.</div></div>`}
     </section>`;
 
   $("#wl-quick").onsubmit = async e => {
     e.preventDefault();
     const inp = $("#wl-text"), q = parseQuick(inp.value);
-    if (!q) { inp.focus(); ctx0.toast("Start with an amount, like 13 chipotle"); return; }
-    const cat = pickCat === "auto" ? guessCat(q.place, list) : pickCat;
-    const id = await addPurchase({ ...q, cat });
+    if (!q) { inp.focus(); ctx0.toast("Start with an amount, like 45 kroger"); return; }
+    const c = pickCat === "auto" ? guessCat(q.place, list) : pickCat;
+    const id = await addPurchase({ ...q, cat: c });
     inp.value = ""; pickCat = "auto";
     await render();
-    undoToast(`Added ${money(q.cents)}${q.place ? " · " + q.place : ""}`, () => store.remove(APP, id));
+    $("#wl-text").focus();
+    undoToast(`Added ${money(q.cents)}${q.place ? " · " + q.place : ""} (${cat(c).label})`, () => store.remove(APP, id));
   };
   root.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => {
     pickCat = b.dataset.cat;
@@ -220,91 +282,103 @@ function renderBudget(st) {
   });
 }
 
+/** How a whole month went. */
+function monthStats(s, list, per) {
+  const base = baseOf(s, per), items = list.filter(p => p.at >= per.start && p.at < per.end);
+  const counted = items.filter(p => p.at >= base.from);
+  const by = {};
+  for (const p of items) by[CATS[p.cat] ? p.cat : "other"] = (by[CATS[p.cat] ? p.cat : "other"] || 0) + p.cents;
+  const total = items.reduce((n, p) => n + p.cents, 0);
+  return { per, base, items, by, total, left: base.cents - counted.reduce((n, p) => n + p.cents, 0) };
+}
+
 function renderRecap(st) {
   const { s, list } = st, now = Date.now();
-  const thisStart = weekOf(now, s.weekStart);
-  const start = addDays(thisStart, -7 * recapWeek);
-  const wk = weekStats(list, start, s);
-  const prev = weekStats(list, addDays(start, -7), s);
-  const four = [1, 2, 3, 4].map(n => weekStats(list, addDays(start, -7 * n), s));
-  const firstAt = list.length ? list[list.length - 1].at : now;
-  const counted = four.filter(w => w.end > firstAt);
-  const avg = k => counted.length ? counted.reduce((n, w) => n + (k === "total" ? w.total : w.by[k]), 0) / counted.length : 0;
-  const eight = [...Array(8)].map((_, i) => weekStats(list, addDays(start, -7 * (7 - i)), s));
-  const maxBar = Math.max(s.foodCents, ...eight.map(w => w.food), 1);
-  // weeks in a row under the food budget, counting back from the last finished week
-  let streak = 0;
-  for (let w = addDays(thisStart, -7); addDays(w, 7) > firstAt; w = addDays(w, -7)) { if (weekStats(list, w, s).under) streak++; else break; }
+  let per = periodOf(now, s.payday);
+  for (let i = 0; i < recapMonth; i++) per = periodOf(per.start - D, s.payday);
+  const m = monthStats(s, list, per), cur = recapMonth === 0;
+  const prevPer = periodOf(per.start - D, s.payday);
+  const prev = tracked(s, prevPer) ? monthStats(s, list, prevPer) : null;
+  const canBack = tracked(s, prevPer) || list.some(p => p.at < per.start);
+  const name = periodName(per, s.payday);
+  const elapsed = Math.max(1, Math.min(per.days, daysBetween(per.start, now) + 1));
+  const cats = Object.entries(m.by).sort((a, b) => b[1] - a[1]);
+  // last 8 weeks of spending against an even weekly share of the allowance
+  const thisWeek = weekOf(now, s.weekStart);
+  const weeks = [...Array(8)].map((_, i) => { const a = addDays(thisWeek, -7 * (7 - i)); return { start: a, total: spent(list, a, addDays(a, 7)) }; });
+  const share = s.monthlyCents * 7 / 30.44;
+  const maxBar = Math.max(share, ...weeks.map(w => w.total), 1);
   const dayTotals = new Map();
-  for (const p of wk.items) dayTotals.set(dayStart(p.at), (dayTotals.get(dayStart(p.at)) || 0) + p.cents);
+  for (const p of m.items) dayTotals.set(dayStart(p.at), (dayTotals.get(dayStart(p.at)) || 0) + p.cents);
   const big = [...dayTotals].sort((a, b) => b[1] - a[1])[0];
   const places = new Map();
-  for (const p of wk.items) { const k = (p.place || CATS[p.cat]?.label || "Other"); const g = places.get(k.toLowerCase()) || { name: k, cents: 0, n: 0 }; g.cents += p.cents; g.n++; places.set(k.toLowerCase(), g); }
+  for (const p of m.items) { const k = p.place || cat(p.cat).label; const g = places.get(k.toLowerCase()) || { name: k, cents: 0, n: 0 }; g.cents += p.cents; g.n++; places.set(k.toLowerCase(), g); }
   const top = [...places.values()].sort((a, b) => b.cents - a.cents).slice(0, 3);
-  const delta = (a, b) => { const d = a - b; return Math.abs(d) < 100 ? `<span class="wl-d same">same</span>` : `<span class="wl-d ${d > 0 ? "up" : "down"}">${d > 0 ? "+" : "−"}${whole(d)}</span>`; };
-  const label = recapWeek === 0 ? "This week" : recapWeek === 1 ? "Last week" : `${new Date(start).toLocaleDateString(undefined, { month: "short", day: "numeric" })} week`;
+  const ended = x => x.left >= 0 ? `${whole(x.left)} left` : `${whole(x.left)} over`;
 
   $("#wl-body").innerHTML = `
     <div class="wl-weeknav">
-      <button class="icon-btn" id="wl-prev" aria-label="Earlier week">${svg("chevronLeft")}</button>
-      <span><b>${label}</b><span class="ap-hint">${new Date(start).toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${new Date(wk.end - D).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span></span>
-      <button class="icon-btn" id="wl-next" aria-label="Later week" ${recapWeek === 0 ? "disabled" : ""}>${svg("chevronRight")}</button>
+      <button class="icon-btn" id="wl-prev" aria-label="Earlier month" ${canBack ? "" : "disabled"}>${svg("chevronLeft")}</button>
+      <span><b>${name}</b><span class="wl-note">${md(per.start)} – ${md(per.end - D)}</span></span>
+      <button class="icon-btn" id="wl-next" aria-label="Later month" ${cur ? "disabled" : ""}>${svg("chevronRight")}</button>
     </div>
+    ${cur && prev ? `<div class="ap-card pad wl-ended">${svg("calendar")}<span>Ended ${esc(periodName(prevPer, s.payday))} with <b class="${prev.left >= 0 ? "good" : "bad"}">${ended(prev)}</b>. It doesn't carry over.</span></div>` : ""}
     <section class="ap-card pad wl-hero">
-      <span class="wl-k">Spent</span>
-      <div class="wl-big">${money(wk.total)}</div>
-      <div class="wl-sub"><span>vs last week ${delta(wk.total, prev.total)}</span><span>4-week avg ${counted.length ? whole(avg("total")) : "—"}</span></div>
-      <div class="wl-sub"><span>Food ${money(wk.food)} of ${whole(s.foodCents)}</span><span class="ap-pill ${wk.under ? "good" : "bad"}">${wk.under ? "under budget" : `${whole(wk.food - s.foodCents)} over`}</span></div>
+      <span class="wl-k">Spent in ${esc(name)}</span>
+      <div class="wl-big">${money(m.total)}</div>
+      <div class="wl-sub"><span>${cur ? `${ended(m)} · ${st.daysLeft} day${st.daysLeft === 1 ? "" : "s"} to go` : `Ended with ${ended(m)}`}</span><span>${whole(m.total / (cur ? elapsed : per.days))}/day average</span></div>
+      ${m.base.partial ? `<div class="wl-note">Counting from ${md(m.base.from)}, when you had ${whole(m.base.cents)} left.</div>` : ""}
     </section>
 
-    <section class="ap-sec"><h3>By category</h3>
-      <div class="ap-card">${Object.entries(CATS).map(([k, c]) => `<div class="ap-row wl-cat-row"><i class="ap-swatch" style="background:${c.color}"></i><span class="grow"><span class="t">${c.label}</span><span class="s">last week ${money(prev.by[k])} · avg ${whole(avg(k))}</span></span>${delta(wk.by[k], prev.by[k])}<b class="wl-amt">${money(wk.by[k])}</b></div>`).join("")}</div>
+    <section class="ap-sec"><h3>Where it went</h3>
+      <div class="ap-card">${cats.length ? cats.map(([k, c]) => `<div class="ap-row wl-cat-row"><i class="ap-swatch" style="background:${cat(k).color}"></i><span class="grow"><span class="t">${cat(k).label}</span>
+        <span class="wl-catbar"><i style="width:${Math.round(c / m.total * 100)}%;background:${cat(k).color}"></i></span></span>
+        <span class="wl-pct">${Math.round(c / m.total * 100)}%</span><b class="wl-amt">${money(c)}</b></div>`).join("") : `<div class="ap-empty">Nothing logged this month yet.</div>`}</div>
     </section>
 
-    <section class="ap-sec"><h3>Food, last 8 weeks</h3>
-      <div class="ap-card pad"><div class="wl-chart" style="--line:${Math.round(s.foodCents / maxBar * 100)}%">
-        ${eight.map((w, i) => `<div class="wl-col ${i === 7 ? "cur" : ""}"><span class="wl-v">${w.food ? whole(w.food) : ""}</span><div class="wl-track"><i style="height:${Math.round(w.food / maxBar * 100)}%;background:${w.under ? "var(--good)" : "var(--bad)"}"></i></div><span class="wl-x">${new Date(w.start).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</span></div>`).join("")}
+    <section class="ap-sec"><h3>Last 8 weeks</h3>
+      <div class="ap-card pad"><div class="wl-chart" style="--line:${Math.round(share / maxBar * 100)}%">
+        ${weeks.map((w, i) => `<div class="wl-col ${i === 7 ? "cur" : ""}"><span class="wl-v">${w.total ? whole(w.total) : ""}</span><div class="wl-track"><i style="height:${Math.round(w.total / maxBar * 100)}%;background:${w.total > share ? "var(--bad)" : "var(--good)"}"></i></div><span class="wl-x">${new Date(w.start).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</span></div>`).join("")}
         <span class="wl-budget-line" aria-hidden="true"></span>
-      </div><span class="ap-hint">Dashed line: your ${whole(s.foodCents)} budget</span></div>
+      </div><span class="wl-note">Dashed line: an even week of your ${whole(s.monthlyCents)} (${whole(share)})</span></div>
     </section>
 
     <div class="wl-stats">
-      <div class="ap-card pad"><span class="wl-k">Biggest day</span><b>${big ? money(big[1]) : "—"}</b><span class="ap-hint">${big ? wd(big[0], "long") : "nothing yet"}</span></div>
-      <div class="ap-card pad"><span class="wl-k">Delivery orders</span><b>${wk.items.filter(p => p.cat === "delivery").length}</b><span class="ap-hint">${money(wk.by.delivery)}</span></div>
-      <div class="ap-card pad"><span class="wl-k">Under-budget streak</span><b>${streak} wk${streak === 1 ? "" : "s"}</b><span class="ap-hint">finished weeks in a row</span></div>
+      <div class="ap-card pad"><span class="wl-k">Biggest day</span><b>${big ? money(big[1]) : "—"}</b><span class="wl-note">${big ? `${wd(big[0], "long")}, ${md(big[0])}` : "nothing yet"}</span></div>
+      <div class="ap-card pad"><span class="wl-k">Purchases</span><b>${m.items.length}</b><span class="wl-note">${m.items.length ? `${money(Math.round(m.total / m.items.length))} on average` : "this month"}</span></div>
     </div>
 
     <section class="ap-sec"><h3>Top places</h3>
-      <div class="ap-card">${top.length ? top.map((p, i) => `<div class="ap-row"><span class="wl-rank">${i + 1}</span><span class="grow"><span class="t">${esc(p.name)}</span><span class="s">${p.n} time${p.n === 1 ? "" : "s"}</span></span><b class="wl-amt">${money(p.cents)}</b></div>`).join("") : `<div class="ap-empty">Nothing logged this week.</div>`}</div>
+      <div class="ap-card">${top.length ? top.map((p, i) => `<div class="ap-row"><span class="wl-rank">${i + 1}</span><span class="grow"><span class="t">${esc(p.name)}</span><span class="s">${p.n} time${p.n === 1 ? "" : "s"}</span></span><b class="wl-amt">${money(p.cents)}</b></div>`).join("") : `<div class="ap-empty">Nothing logged this month yet.</div>`}</div>
     </section>`;
-  $("#wl-prev").onclick = () => { recapWeek++; render(); };
-  $("#wl-next").onclick = () => { if (recapWeek > 0) { recapWeek--; render(); } };
+  $("#wl-prev").onclick = () => { if (canBack) { recapMonth++; render(); } };
+  $("#wl-next").onclick = () => { if (recapMonth > 0) { recapMonth--; render(); } };
 }
 
 /* ---------- for the rest of GooseOS ---------- */
 async function widget(el) {
   const st = await status();
-  if (!st) { el.innerHTML = `<span class="h-k">Wallet</span><span class="h-t">Set a weekly food budget</span>`; return; }
-  el.innerHTML = `<span class="h-k">Food this week</span><span class="h-big">${whole(st.left)}</span>
-    <span class="h-t">${st.left < 0 ? "over budget" : `left ${st.lastDay}`}</span>
-    <span class="h-s">${st.left > 0 ? (st.lastDay === "today" ? "last day of the week" : `about ${whole(st.perDay)}/day`) : `${money(st.wk.food)} of ${whole(st.s.foodCents)}`}</span>
-    <span class="h-meter"><i style="width:${Math.min(100, st.pct)}%;background:${toneColor(st.tone)}"></i></span>`;
+  if (!st) { el.innerHTML = `<span class="h-k">Wallet</span><span class="h-t">Set up your monthly money</span>`; return; }
+  const [used, cap, tone] = st.showWeek ? [st.weekSpent, st.weekShare, st.weekTone] : [st.base.cents - st.left, st.base.cents, st.tone];
+  el.innerHTML = `<span class="h-k">Safe to spend</span><span class="h-big">${st.left < 0 ? whole(st.left) : daily(st.perDay)}<small>${st.left < 0 ? " over" : "/day"}</small></span>
+    <span class="h-t">${st.left < 0 ? "over for the month" : `${whole(st.left)} left this month`}</span>
+    <span class="h-s">${st.showWeek ? `This week ${whole(st.weekSpent)} of ${whole(st.weekShare)}` : `${st.daysLeft} days left in ${periodName(st.per, st.s.payday)}`}</span>
+    <span class="h-meter"><i style="width:${cap > 0 ? Math.min(100, Math.max(0, Math.round(used / cap * 100))) : 100}%;background:${toneColor(tone)}"></i></span>`;
 }
 async function summary() {
   const st = await status(); if (!st) return null;
-  return { label: "Food this week", value: st.left < 0 ? `${whole(st.left)} over` : `${whole(st.left)} left`,
-    sub: st.left > 0 ? (st.lastDay === "today" ? "last day of the week" : `about ${whole(st.perDay)}/day ${st.lastDay}`) : `${money(st.wk.food)} of ${whole(st.s.foodCents)}`,
-    pct: Math.min(100, st.pct), tone: st.tone, open: "#wallet" };
+  return { label: "Safe to spend", value: st.left < 0 ? `${whole(st.left)} over` : `${daily(st.perDay)}/day`,
+    sub: st.left < 0 ? `over for ${periodName(st.per, st.s.payday)}` : `${whole(st.left)} left this month · ${st.daysLeft} days`,
+    pct: st.base.cents > 0 ? Math.min(100, Math.max(0, Math.round((st.base.cents - st.left) / st.base.cents * 100))) : 100, tone: st.tone, open: "#wallet" };
 }
 /** The Sunday 7 PM recap ping, for Reminders. */
 async function agenda() {
   const st = await status(); if (!st) return [];
   const sun = addDays(dayStart(Date.now()), (7 - new Date().getDay()) % 7);
-  const due = sun + 19 * 3600e3;
-  // weeks that start Sunday have just ended by Sunday night, so recap the one before
-  const wk = weekStats(st.list, weekOf(addDays(sun, st.s.weekStart === "sun" ? -1 : 0), st.s.weekStart), st.s);
-  return [{ key: `wallet:recap-${ymd(sun)}`, title: "Your week in money", kind: "ping", due, done: false, open: "#wallet/recap",
-    body: `${money(wk.total)} spent this week. Food: ${money(wk.food)} of ${whole(st.s.foodCents)}.` }];
+  const wk = weekOf(addDays(sun, st.s.weekStart === "sun" ? -1 : 0), st.s.weekStart);
+  const week = spent(st.list, wk, addDays(wk, 7));
+  return [{ key: `wallet:recap-${ymd(sun)}`, title: "Your week in money", kind: "ping", due: sun + 19 * 3600e3, done: false, open: "#wallet/recap",
+    body: `${money(week)} spent this week. ${st.left < 0 ? `${whole(st.left)} over for the month.` : `${whole(st.left)} left for the month, about ${daily(st.perDay)}/day.`}` }];
 }
 
 let cssLoaded = false;
@@ -320,15 +394,16 @@ async function mount(el, ctx) {
     <div class="ap-tabs" role="group" aria-label="View"><button data-tab="budget">Budget</button><button data-tab="recap">Recap</button></div>
     <button class="icon-btn" id="wl-set" aria-label="Wallet settings">${svg("settings")}</button></div>
     <div class="ap-scroll"><div class="ap-body" id="wl-body"></div></div>`;
-  el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; recapWeek = 0; setRoute(); el.querySelector(".ap-scroll").scrollTop = 0; render(); });
-  $("#wl-set").onclick = async () => openSettings((await getSettings()) || { foodCents: 0, goingOutCents: 0, weekStart: "mon" });
+  el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; recapMonth = 0; setRoute(); el.querySelector(".ap-scroll").scrollTop = 0; render(); });
+  $("#wl-set").onclick = async () => openSettings((await store.get(APP, "settings")) || { monthlyCents: 0, payday: 1, weekStart: "mon" });
   store.onChange(ch => { if (ch.source === "remote" && ch.app === APP && ctx.isActive()) render(); });
 }
 async function show(arg) {
-  tab = arg === "recap" ? "recap" : "budget"; recapWeek = 0;
-  if (tab === "recap") { const s = await getSettings(); if (s && s.weekStart === "sun" && new Date().getDay() === 0) recapWeek = 1; }
+  tab = arg === "recap" ? "recap" : "budget"; recapMonth = 0;
   await render();
   if (tab === "budget") { const i = root.querySelector("#wl-text"); if (i && matchMedia("(min-width:900px)").matches) i.focus(); }
 }
 
+// exported for tests
+export { periodOf, status, parseQuick, guessCat };
 export default { id: APP, name: "Wallet", icon: "wallet", color: ["#34d399", "#059669"], mount, show, widget, summary, agenda, complete() {} };
