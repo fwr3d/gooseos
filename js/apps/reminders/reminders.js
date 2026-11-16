@@ -108,8 +108,8 @@ async function tick() {
         await store.put(APP, item.key, { ...st, sent: [...sent, ...todo.map(s => s.id)], snoozeFired: true });
         continue;
       }
-      if (quiet) continue;
-      if (cls && item.due > cls.end) continue;   // hold until class ends, unless it's due before then
+      if (quiet && !item.loud) continue;   // loud: a timer you just started, like laundry
+      if (cls && !item.loud && item.due > cls.end) continue;   // hold until class ends, unless it's due before then
       const ok = await fire(item, now);
       if (ok || notify.permission() !== "granted") await store.put(APP, item.key, { ...st, sent: [...sent, ...todo.map(s => s.id)], snoozeFired: true });
     }

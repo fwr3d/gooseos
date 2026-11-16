@@ -5,6 +5,7 @@
 //                    due:  ms since epoch (or null for "no date")
 //                    kind: "deadline" | "step" | "task" | ...
 //                    open: hash to open it, like "#deadlines"
+//                    loud: true lets a ping buzz in quiet hours and during class (timers you just started)
 //   complete(key) -> marks that item done
 // Hidden apps are left out. Reminders and Today read only this list.
 import apps from "./apps/index.js";

@@ -21,6 +21,8 @@ import today from "./today/today.js";
 import events from "./events/events.js";
 import wallet from "./wallet/wallet.js";
 import reset from "./reset/reset.js";
+import grades from "./grades/grades.js";
+import laundry from "./laundry/laundry.js";
 
 export default [
   today,
@@ -32,5 +34,7 @@ export default [
   reminders,
   wallet,
   reset,
+  grades,
+  laundry,
   events,
 ];

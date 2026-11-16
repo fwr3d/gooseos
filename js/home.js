@@ -55,6 +55,9 @@ export const SMALL = {
   wallet: { label: "Wallet", open: "wallet", async render(el) {
     const a = app("wallet"); if (a && a.widget) await a.widget(el, { store, svg });
   } },
+  laundry: { label: "Laundry", open: "laundry", async render(el) {
+    const a = app("laundry"); if (a && a.widget) await a.widget(el, { store, svg });
+  } },
   whiteboard: { label: "Whiteboard", open: "whiteboard", async render(el) {
     const wb = app("whiteboard"); if (wb && wb.widget) await wb.widget(el, { store, svg });
   } },
