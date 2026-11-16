@@ -82,6 +82,23 @@ async function afterSignIn(user) {
   syncNow();
 }
 
+/** True when an account is signed in on this device. */
+export const signedIn = () => !!state.email && state.status !== "signed-out" && state.status !== "off";
+
+/** Turn a private calendar-feed link on (or off) for the signed-in account. See api/feed.js. */
+export async function addFeedToken(token) {
+  const c = await getClient();
+  if (!c || !(await currentUser())) throw new Error("signed-out");
+  const { error } = await c.from("feeds").insert({ token });
+  if (error) throw error;
+}
+export async function removeFeedToken(token) {
+  const c = await getClient();
+  if (!c || !(await currentUser())) throw new Error("signed-out");
+  const { error } = await c.from("feeds").delete().eq("token", token);
+  if (error) throw error;
+}
+
 /** Run one push + pull. Safe to call often; overlapping calls are merged. */
 export async function syncNow() {
   if (!enabled) return;

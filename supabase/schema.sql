@@ -55,3 +55,36 @@ create policy "own rows: change" on public.items for update using (auth.uid() = 
 
 drop policy if exists "own rows: delete" on public.items;
 create policy "own rows: delete" on public.items for delete using (auth.uid() = user_id);
+
+-- Calendar feed (Reminders -> "Get reminders on your phone").
+-- A feed token is a long random secret. Whoever has the link can read the short
+-- list of titles and due times GooseOS saves for the feed, and nothing else.
+create table if not exists public.feeds (
+  token   text primary key check (length(token) >= 32),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  created timestamptz not null default now()
+);
+
+alter table public.feeds enable row level security;
+
+drop policy if exists "own feeds: read" on public.feeds;
+create policy "own feeds: read" on public.feeds for select using (auth.uid() = user_id);
+
+drop policy if exists "own feeds: add" on public.feeds;
+create policy "own feeds: add" on public.feeds for insert with check (auth.uid() = user_id);
+
+drop policy if exists "own feeds: delete" on public.feeds;
+create policy "own feeds: delete" on public.feeds for delete using (auth.uid() = user_id);
+
+-- What /api/feed calls. Returns the saved feed list for a valid token, or null.
+create or replace function public.feed_agenda(feed_token text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select i.data
+  from public.feeds f
+  join public.items i on i.user_id = f.user_id
+  where f.token = feed_token and i.app = 'feed' and i.id = 'agenda' and not i.deleted
+  limit 1;
+$$;
+
+revoke all on function public.feed_agenda(text) from public;
+grant execute on function public.feed_agenda(text) to anon, authenticated;

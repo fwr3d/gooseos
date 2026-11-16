@@ -5,6 +5,7 @@ import * as store from "./store.js";
 import * as sync from "./sync.js";
 import { svg } from "./icons.js";
 import * as capture from "./capture.js";
+import * as feed from "./feed.js";
 import { renderHome as drawHome, pickerHtml, wirePicker } from "./home.js";
 
 const $ = s => document.querySelector(s);
@@ -235,5 +236,6 @@ sync.onStatus(s => {
   if (!$("#sheet").hidden && $("#sheet-title").textContent === "Settings") drawSettings();
 });
 sync.start();
+feed.start();
 let homeT = null;
 store.onChange(() => { if (!current) { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); } });

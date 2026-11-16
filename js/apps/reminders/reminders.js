@@ -14,6 +14,8 @@ import * as agenda from "../../agenda.js";
 import * as notify from "../../notify.js";
 import { isInClass } from "../schedule/schedule.js";
 import { dueLabel } from "../deadlines/parse.js";
+import * as feed from "../../feed.js";
+import * as sync from "../../sync.js";
 
 const APP = "reminders";
 const H = 3600e3, D = 24 * H;
@@ -173,6 +175,25 @@ function permCard() {
   return `<div class="ap-card pad rm-perm"><b>Turn on notifications</b><span>So reminders reach you even when you're in another window.</span><button class="pill-btn" id="rm-allow" style="align-self:flex-start">Turn on notifications</button></div>`;
 }
 
+/* Calendar feed: reminders that reach your phone when GooseOS is closed (js/feed.js). */
+async function feedCard() {
+  const link = await feed.getLink();
+  const head = `<b>Get reminders on your phone</b>`;
+  if (!link) {
+    const why = `<span>GooseOS can only remind you while it's open. Add your deadlines to your phone's calendar and it alerts you any time, with the same timing as “How hard to nag”.</span>`;
+    return sync.signedIn()
+      ? `<div class="ap-card pad rm-feed">${head}${why}<button class="pill-btn" id="rm-feed-make" style="align-self:flex-start">Make my calendar link</button></div>`
+      : `<div class="ap-card pad rm-feed">${head}${why}<span>This needs sync, so your phone can reach your deadlines.</span><button class="pill-btn secondary" data-open="settings" style="align-self:flex-start">${sync.enabled ? "Sign in to sync" : "Sync is off"}</button></div>`;
+  }
+  const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+  return `<div class="ap-card pad rm-feed">${head}
+    <span>Your calendar link is on. Open it on your phone to subscribe. New and changed deadlines show up there on their own, usually within an hour or so.</span>
+    ${local ? `<span class="rm-feed-warn">You're on this computer's test address, so this link won't work on a phone. Make it from the real GooseOS site.</span>` : ""}
+    <div class="rm-feed-row"><a class="pill-btn" href="${esc(feed.urlFor(link.token, "webcal"))}">Add to calendar</a><button class="pill-btn secondary" id="rm-feed-copy">${svg("copy")}Copy link</button><button class="link-btn" id="rm-feed-off">Turn off</button></div>
+    <span class="ap-hint">On iPhone, if alerts don't appear, open the subscribed calendar's settings and switch off “Remove Alerts”. Google Calendar ignores a feed's alerts, so set default notifications for the calendar there. Keep this link private: anyone with it can see your deadline titles.</span>
+  </div>`;
+}
+
 async function nextFor(item, settings, now) {
   const st = (await store.get(APP, item.key)) || { sent: [] };
   if (st.snoozedUntil && st.snoozedUntil > now) return { at: st.snoozedUntil, snoozed: true };
@@ -203,8 +224,11 @@ async function render() {
   const fmtAt = t => { const s = dueLabel(t); return s; };
   const missedList = ((missed && missed.list) || []).filter(m => now - m.at < 2 * D);
 
+  const feedHtml = await feedCard();
+
   $("#rm-body").innerHTML = `
     ${permCard()}
+    ${feedHtml}
     ${missedList.length ? `<section class="ap-sec"><h3>While GooseOS was closed<span class="n">${missedList.length}</span><span class="ap-spacer"></span><button class="link-btn" id="rm-clear" style="font-size:12.5px;padding:0">Clear</button></h3><div class="ap-card">${missedList.map(m => `<div class="ap-row"><span class="grow"><span class="t">${esc(m.title)}</span><span class="s">Reminder was due ${esc(dueLabel(m.at))}</span></span></div>`).join("")}</div></section>` : ""}
     ${late.length ? `<section class="ap-sec bad"><h3>Overdue<span class="n">${late.length}</span></h3><div class="ap-card">${late.map(i => itemRow(i, `Was due ${dueLabel(i.due)} · nagging every 2 hours`, now)).join("")}</div></section>` : ""}
     <section class="ap-sec"><h3>Next reminders</h3><div class="ap-card">${upcoming.length ? upcoming.slice(0, 12).map(({ item, n }) => itemRow(item, `${n.snoozed ? "Snoozed until" : "Next reminder"} ${fmtAt(n.at)} · due ${dueLabel(item.due)}`, now)).join("") : `<div class="ap-empty"><b>Nothing to remind you about</b>Add deadlines in Deadlines and they'll show up here.</div>`}</div></section>
@@ -221,6 +245,29 @@ async function render() {
 
   const allow = $("#rm-allow");
   if (allow) allow.onclick = async () => { const p = await notify.ask(); ctx0.toast(p === "granted" ? "Reminders are on." : "Notifications weren't allowed."); render(); };
+  const make = $("#rm-feed-make");
+  if (make) make.onclick = async () => {
+    make.disabled = true; make.textContent = "Making link…";
+    try { await feed.create(); ctx0.toast("Calendar link is on."); }
+    catch (e) {
+      console.error(e);
+      ctx0.toast(e.message === "signed-out" ? "Sign in to sync first." : !navigator.onLine ? "You're offline. Try again when you're connected." : "Couldn't make the link. The feed part of supabase/schema.sql may not have been run yet.");
+    }
+    render();
+  };
+  const copy = $("#rm-feed-copy");
+  if (copy) copy.onclick = async () => {
+    const link = await feed.getLink(); if (!link) return;
+    try { await navigator.clipboard.writeText(feed.urlFor(link.token)); ctx0.toast("Link copied."); }
+    catch (e) { ctx0.toast("Couldn't copy. Use “Add to calendar” instead."); }
+  };
+  const off = $("#rm-feed-off");
+  if (off) off.onclick = async () => {
+    if (!confirm("Turn off your calendar link? Calendars subscribed to it will stop updating.")) return;
+    try { await feed.remove(); ctx0.toast("Calendar link is off."); }
+    catch (e) { console.error(e); ctx0.toast(e.message === "signed-out" ? "Sign in to sync to turn it off." : "Couldn't turn it off. Try again."); }
+    render();
+  };
   const clear = $("#rm-clear"); if (clear) clear.onclick = async () => { await store.put(APP, "missed", { list: [] }); render(); };
   root.querySelectorAll("[data-int]").forEach(b => b.onclick = () => save({ intensity: b.dataset.int }));
   $("#rm-qf").onchange = e => save({ quietFrom: e.target.value || DEFAULTS.quietFrom });
@@ -256,6 +303,8 @@ async function mount(el, ctx) {
     render();
   });
   store.onChange(() => { if (ctx.isActive()) { clearTimeout(rt); rt = setTimeout(render, 200); } });
+  let wasIn = sync.signedIn();
+  sync.onStatus(() => { const now = sync.signedIn(); if (now !== wasIn && ctx.isActive()) render(); wasIn = now; });
   await render();
 }
 let rt = null;

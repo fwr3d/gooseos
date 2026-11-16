@@ -7,3 +7,9 @@
 .rm-toggle{display:flex;align-items:center;gap:8px;font-size:14px}
 .rm-toggle input{width:18px;height:18px;accent-color:var(--accent-strong)}
 .ap-sec>h3 .ap-spacer{flex:1}
+.rm-feed span{color:var(--muted);font-size:13.5px;line-height:1.5}
+.rm-feed .rm-feed-warn{color:var(--warn)}
+.rm-feed-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.rm-feed-row a.pill-btn{text-decoration:none}
+.rm-feed-row .pill-btn{display:inline-flex;align-items:center;gap:6px}
+.rm-feed-row .pill-btn .ic{width:15px;height:15px}

@@ -20,6 +20,7 @@ createServer(async (req, res) => {
     let path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     // run the same functions Vercel runs under /api
     if (path === "/api/ics") { await require(join(root, "api", "ics.js"))(req, res); return; }
+    if (path === "/api/feed") { await require(join(root, "api", "feed.js"))(req, res); return; }
     if (path.endsWith("/")) path += "index.html";
     const file = normalize(join(root, path));
     if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
