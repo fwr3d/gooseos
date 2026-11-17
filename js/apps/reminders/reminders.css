@@ -13,3 +13,13 @@
 .rm-feed-row a.pill-btn{text-decoration:none}
 .rm-feed-row .pill-btn{display:inline-flex;align-items:center;gap:6px}
 .rm-feed-row .pill-btn .ic{width:15px;height:15px}
+
+/* nag by list */
+.rm-lists{display:flex;flex-direction:column;gap:6px;max-width:420px}
+.rm-lists-h{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.rm-lrow{display:grid;grid-template-columns:1fr 130px auto;gap:10px;align-items:center}
+.rm-lname{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500}
+.rm-lname i{width:9px;height:9px;border-radius:50%}
+.rm-lrow .field{padding:6px 8px;font-size:14px}
+.rm-phone{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.rm-phone input{width:16px;height:16px;accent-color:var(--accent-strong)}

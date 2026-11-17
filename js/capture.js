@@ -10,10 +10,10 @@ let el = null, toastFn = () => {};
 function build() {
   el = document.createElement("div");
   el.className = "cap-back"; el.hidden = true;
-  el.innerHTML = `<form class="cap" role="dialog" aria-modal="true" aria-label="Quick add a deadline" autocomplete="off">
-      <div class="cap-row">${svg("plus")}<input id="cap-in" placeholder="cs proj 3 due fri 11:59" aria-label="What's due and when"><kbd>Enter</kbd></div>
+  el.innerHTML = `<form class="cap" role="dialog" aria-modal="true" aria-label="Quick add" autocomplete="off">
+      <div class="cap-row">${svg("plus")}<input id="cap-in" placeholder="cs proj 3 fri 11:59 · frat dues fri" aria-label="What's due and when"><kbd>Enter</kbd></div>
       <div class="cap-prev" id="cap-prev"></div>
-      <div class="cap-hint">Course first, then what, then when. Add “gradescope” or “ed” to tag where it lives.</div>
+      <div class="cap-hint">Course or list first, then what, then when: “cs proj 3 fri” or “frat dues fri”. Tag a list anywhere with #, like #personal.</div>
     </form>`;
   document.body.appendChild(el);
   const input = el.querySelector("#cap-in");

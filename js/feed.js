@@ -22,11 +22,13 @@ export function urlFor(token, scheme = "https") {
 
 async function snapshot() {
   const rm = (await store.get("reminders", "settings")) || {};
-  const ramp = ALARMS[rm.intensity] || ALARMS.normal;
+  const skip = new Set(rm.feedSkip || []), byList = rm.byList || {};
+  // a list set to "off" still shows on the calendar, just without alerts
+  const rampFor = i => { const n = byList[i.list] || rm.intensity; return n === "off" ? [] : ALARMS[n] || ALARMS.normal; };
   return (await agenda.list())
-    .filter(i => i.due && !i.done && i.kind !== "ping")
+    .filter(i => i.due && !i.done && i.kind !== "ping" && !skip.has(i.list))
     .map(i => ({ key: i.key, title: i.title || "", due: i.due, course: i.course || "", kind: i.kind, open: i.open,
-      alarms: i.kind === "deadline" || i.kind === "exam" ? ramp : [1440] }));
+      alarms: (byList[i.list] || rm.intensity) === "off" ? [] : i.kind === "deadline" || i.kind === "exam" ? rampFor(i) : [1440] }));
 }
 
 /** Save the agenda copy if it changed. Does nothing until a link exists. */

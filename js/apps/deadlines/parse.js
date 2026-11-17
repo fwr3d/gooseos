@@ -1,6 +1,7 @@
 // Turns quick-capture text like "cs proj 3 due fri 11:59" into a deadline:
-//   { title, course, source, due: Date, hasTime }
+//   { title, course, list, source, due: Date, hasTime }
 // Understands:
+//   list     first word if it's a list name ("frat dues fri"), or "#name" anywhere ("call mom #personal")
 //   course   first word if it's a known course (or looks like one: "cs", "ma261", "CS 18000")
 //   source   "gradescope"/"gs", "ed", "brightspace"/"bs" anywhere in the text
 //   day      today, tonight, tomorrow/tmrw, mon..sun, next fri, 11/20, nov 20, 20 nov, in 3 days
@@ -41,27 +42,39 @@ function parseTime(tok, next) {
   return null;
 }
 
-export function parseCapture(text, now = new Date(), knownCourses = []) {
+/** knownLists: [{ id, name }] from js/lists.js. list is "" when the text doesn't name one. */
+export function parseCapture(text, now = new Date(), knownCourses = [], knownLists = []) {
   const raw = String(text || "").trim();
   const words = raw.split(/\s+/).filter(Boolean);
   const lower = words.map(w => w.toLowerCase().replace(/[,.]$/, ""));
   const used = new Array(words.length).fill(false);
-  let course = "", source = "", day = null, time = null;
+  let course = "", list = "", source = "", day = null, time = null;
   const today = new Date(now); today.setHours(0, 0, 0, 0);
   const known = knownCourses.map(c => ({ full: c, norm: normCourse(c).toLowerCase(), dept: normCourse(c).split(" ")[0].toLowerCase() }));
 
-  // course: first word (or first two, like "cs 180")
-  if (lower.length) {
-    const two = lower.length > 1 && /^\d{3,5}$/.test(lower[1]) ? `${lower[0]} ${lower[1]}` : null;
-    const one = lower[0];
+  // list: "#name" anywhere, or a list name as the first word
+  const findList = w => knownLists.find(l => l.id === w || l.name.toLowerCase() === w);
+  for (let i = 0; i < lower.length && !list; i++) {
+    const w = lower[i];
+    const hit = w.startsWith("#") ? findList(w.slice(1)) : i === 0 && lower.length > 1 ? findList(w) : null;
+    if (hit) { list = hit.id; used[i] = true; }
+  }
+
+  // course: first word left (or first two, like "cs 180")
+  const s0 = used[0] ? 1 : 0;
+  if (lower.length > s0) {
+    const two = lower.length > s0 + 1 && /^\d{3,5}$/.test(lower[s0 + 1]) ? `${lower[s0]} ${lower[s0 + 1]}` : null;
+    const one = lower[s0];
     // exact ("cs 18000"), short number ("ma261" → "MA 26100"), or department only ("cs" → "CS 18000")
     const match = c => {
       const n = normCourse(c).toLowerCase();
       return known.find(k => k.norm === n) || (/\d/.test(n) && known.find(k => k.norm.startsWith(n))) || (!/\d/.test(n) && known.find(k => k.dept === n));
     };
-    if (two && /^[a-z]{2,5}$/.test(lower[0])) { const k = match(two); course = k ? k.full : normCourse(two); used[0] = used[1] = true; }
-    else if (/^[a-z]{2,5}\d{3,5}$/.test(one)) { const k = match(one); course = k ? k.full : normCourse(one); used[0] = true; }
-    else if (/^[a-z]{2,5}$/.test(one) && (match(one) || DEPTS.has(one))) { const k = match(one); course = k ? k.full : normCourse(one); used[0] = true; }
+    // under a non-school list ("frat ...") only a course you've actually used counts, never a guessed department
+    const loose = !list || list === "school";
+    if (two && /^[a-z]{2,5}$/.test(lower[s0])) { const k = match(two); course = k ? k.full : normCourse(two); used[s0] = used[s0 + 1] = true; }
+    else if (/^[a-z]{2,5}\d{3,5}$/.test(one)) { const k = match(one); course = k ? k.full : normCourse(one); used[s0] = true; }
+    else if (/^[a-z]{2,5}$/.test(one) && (match(one) || (loose && DEPTS.has(one)))) { const k = match(one); course = k ? k.full : normCourse(one); used[s0] = true; }
   }
 
   for (let i = 0; i < lower.length; i++) {
@@ -113,7 +126,7 @@ export function parseCapture(text, now = new Date(), knownCourses = []) {
     due = new Date(today); due.setHours(h, mi, 0, 0);
     if (due < now) due.setDate(due.getDate() + 1);
   }
-  return { title, course, source, due, hasTime: hasTime || !!day };
+  return { title, course, list, source, due, hasTime: hasTime || !!day };
 }
 
 /** Friendly due text: "Today 11:59 PM", "Tomorrow 9:00 AM", "Fri 11:59 PM", "Nov 20, 11:59 PM". */

@@ -3,7 +3,9 @@
 // until you mark it done or snooze it.
 //
 // Saved items (app "reminders"):
-//   "settings":  { intensity: "chill"|"normal"|"relentless", quietFrom: "01:00", quietTo: "08:00", holdInClass: true }
+//   "settings":  { intensity: "chill"|"normal"|"relentless", quietFrom: "01:00", quietTo: "08:00", holdInClass: true,
+//                  byList: { <list id>: "chill"|"normal"|"relentless"|"off" },   lists that nag differently (missing = same as intensity)
+//                  feedSkip: [<list id>] }                                       lists left out of the phone calendar
 //   "missed":    { list: [{ key, title, at }] }  reminders that came due while GooseOS was closed
 //   <agenda key>: { sent: ["3d", "1d", ...], snoozedUntil }
 //
@@ -16,10 +18,17 @@ import { isInClass } from "../schedule/schedule.js";
 import { dueLabel } from "../deadlines/parse.js";
 import * as feed from "../../feed.js";
 import * as sync from "../../sync.js";
+import { loadLists } from "../../lists.js";
 
 const APP = "reminders";
 const H = 3600e3, D = 24 * H;
-const DEFAULTS = { intensity: "normal", quietFrom: "01:00", quietTo: "08:00", holdInClass: true };
+const DEFAULTS = { intensity: "normal", quietFrom: "01:00", quietTo: "08:00", holdInClass: true, byList: {}, feedSkip: [] };
+
+/** How hard one item nags: its list's setting, or the main one. "off" = never. */
+export function intensityFor(item, settings) {
+  const own = item && item.list && settings.byList ? settings.byList[item.list] : null;
+  return own || settings.intensity;
+}
 const RAMPS = {
   chill: ["1d", "1h"],
   normal: ["3d", "1d", "morning", "3h", "1h"],
@@ -45,7 +54,9 @@ export function stepsFor(item, settings, now = Date.now()) {
   if (!item.due) return [];
   const due = item.due;
   if (item.kind === "ping") return [{ id: "at", at: due }];
-  const ids = item.kind === "deadline" || item.kind === "exam" ? RAMPS[settings.intensity] || RAMPS.normal : ["1d", "morning"];
+  const intensity = intensityFor(item, settings);
+  if (intensity === "off") return [];
+  const ids = item.kind === "deadline" || item.kind === "exam" ? RAMPS[intensity] || RAMPS.normal : ["1d", "morning"];
   const out = [];
   for (const id of ids) {
     if (id === "morning") {
@@ -225,6 +236,15 @@ async function render() {
   const missedList = ((missed && missed.list) || []).filter(m => now - m.at < 2 * D);
 
   const feedHtml = await feedCard();
+  const [lists, link] = await Promise.all([loadLists(), feed.getLink()]);
+  const skip = new Set(settings.feedSkip || []);
+  const LEVELS = [["", "Same"], ["chill", "Chill"], ["normal", "Normal"], ["relentless", "Relentless"], ["off", "Off"]];
+  const byListHtml = `<div class="rm-lists"><span class="rm-lists-h">By list</span>${lists.map(l => `<div class="rm-lrow">
+      <span class="rm-lname"><i style="background:${esc(l.color)}"></i>${esc(l.name)}</span>
+      <select class="field" data-blist="${esc(l.id)}" aria-label="How hard to nag for ${esc(l.name)}">${LEVELS.map(([v, t]) => `<option value="${v}" ${(settings.byList || {})[l.id] === v || (!v && !(settings.byList || {})[l.id]) ? "selected" : ""}>${t}</option>`).join("")}</select>
+      ${link ? `<label class="rm-phone"><input type="checkbox" data-flist="${esc(l.id)}" ${skip.has(l.id) ? "" : "checked"}> Phone</label>` : ""}
+    </div>`).join("")}
+    <span class="ap-hint">“Same” follows the setting above. “Off” means no pings for that list${link ? ", and Phone picks which lists go to your phone's calendar" : ""}.</span></div>`;
 
   $("#rm-body").innerHTML = `
     ${permCard()}
@@ -235,6 +255,7 @@ async function render() {
     <section class="ap-sec"><h3>How hard to nag</h3><div class="ap-card pad">
       <div class="ap-tabs rm-int" role="group" aria-label="Reminder intensity" style="align-self:flex-start">${["chill", "normal", "relentless"].map(k => `<button data-int="${k}" aria-pressed="${settings.intensity === k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join("")}</div>
       <span class="ap-hint">For deadlines: ${RAMP_TEXT[settings.intensity]}, then every 2 hours once it's late. Project steps and to-dos get 1 day before and the morning of.</span>
+      ${byListHtml}
       <div class="rm-grid">
         <label>Quiet from<input class="field" type="time" id="rm-qf" value="${esc(settings.quietFrom)}"></label>
         <label>Quiet until<input class="field" type="time" id="rm-qt" value="${esc(settings.quietTo)}"></label>
@@ -270,6 +291,16 @@ async function render() {
   };
   const clear = $("#rm-clear"); if (clear) clear.onclick = async () => { await store.put(APP, "missed", { list: [] }); render(); };
   root.querySelectorAll("[data-int]").forEach(b => b.onclick = () => save({ intensity: b.dataset.int }));
+  root.querySelectorAll("[data-blist]").forEach(s => s.onchange = () => {
+    const byList = { ...(settings.byList || {}) };
+    if (s.value) byList[s.dataset.blist] = s.value; else delete byList[s.dataset.blist];
+    save({ byList });
+  });
+  root.querySelectorAll("[data-flist]").forEach(c => c.onchange = () => {
+    const s = new Set(settings.feedSkip || []);
+    if (c.checked) s.delete(c.dataset.flist); else s.add(c.dataset.flist);
+    save({ feedSkip: [...s] });
+  });
   $("#rm-qf").onchange = e => save({ quietFrom: e.target.value || DEFAULTS.quietFrom });
   $("#rm-qt").onchange = e => save({ quietTo: e.target.value || DEFAULTS.quietTo });
   $("#rm-class").onchange = e => save({ holdInClass: e.target.checked });

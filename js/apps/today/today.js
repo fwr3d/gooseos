@@ -13,6 +13,12 @@ import * as agenda from "../../agenda.js";
 import { status as classStatus, colorOf, fmtTime, inTime, meetingsOn } from "../schedule/schedule.js";
 import { dueLabel } from "../deadlines/parse.js";
 import { forToday as resetToday, togglePin } from "../reset/reset.js";
+import { loadLists, byId } from "../../lists.js";
+
+// which list Today shows ("all" or a list id). Per device, so the laptop and phone can differ.
+let listPick = "all";
+try { listPick = localStorage.getItem("td-list") || "all"; } catch (e) { /* ignore */ }
+function setPick(id) { listPick = id; try { localStorage.setItem("td-list", id); } catch (e) { /* ignore */ } }
 
 const APP = "today";
 const EVENING = 20;          // 8 PM: switch to "Tomorrow"
@@ -35,8 +41,11 @@ async function summaries() {
 async function gather(now = Date.now()) {
   const evening = new Date(now).getHours() >= EVENING;
   const t0 = dayStart(now), t1 = addDays(now, 1), t2 = addDays(now, 2), t4 = addDays(now, 4);
-  const [items, cls, sums, missed, reset] = await Promise.all([agenda.list(), classStatus(now), summaries(), store.get("reminders", "missed"),
-    resetToday(now).catch(e => { console.error(e); return { pins: [], note: "", nudge: false }; })]);
+  const [all, cls, sums, missed, reset, lists] = await Promise.all([agenda.list(), classStatus(now), summaries(), store.get("reminders", "missed"),
+    resetToday(now).catch(e => { console.error(e); return { pins: [], note: "", nudge: false }; }), loadLists()]);
+  const pick = listPick !== "all" && lists.some(l => l.id === listPick) ? listPick : "all";
+  rowLists = pick === "all" ? lists : null;
+  const items = pick === "all" ? all : all.filter(i => i.list === pick);
   const todo = items.filter(i => i.due && i.kind !== "ping");
   const late = todo.filter(i => i.due < now);
   const today = todo.filter(i => i.due >= now && i.due < t1);
@@ -46,7 +55,9 @@ async function gather(now = Date.now()) {
   const workMin = focusList.concat(evening ? [] : late).reduce((s, i) => s + (i.estMin || 0), 0);
   const tomorrowClasses = meetingsOn(cls.courses, cls.sem, t1 + 12 * 3600e3);
   const missedList = ((missed && missed.list) || []).filter(m => now - m.at < 2 * 864e5);
-  return { now, evening, late, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset };
+  // classes belong to School: hide them when another list is picked
+  const showClasses = pick === "all" || pick === "school";
+  return { now, evening, late, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset, lists, pick, showClasses };
 }
 
 function pill(i, now) {
@@ -57,8 +68,10 @@ function pill(i, now) {
 }
 function kindLabel(i) { return i.kind === "step" ? "Step" : i.kind === "task" ? "To-do" : i.appName === "Deadlines" ? "" : i.appName; }
 
+let rowLists = null;   // set by gather(): lists to name on rows, only when showing All
 function itemRow(i, now) {
-  const meta = [i.course, kindLabel(i), i.due < now ? `was due ${dueLabel(i.due)}` : dueLabel(i.due)].filter(Boolean).join(" · ");
+  const ln = rowLists && i.list && i.list !== "school" && !i.course ? byId(rowLists, i.list).name : "";
+  const meta = [i.course || ln, kindLabel(i), i.due < now ? `was due ${dueLabel(i.due)}` : dueLabel(i.due)].filter(Boolean).join(" · ");
   return `<div class="ap-row" data-key="${esc(i.key)}">
     <button class="ap-check" data-act="done" aria-label="Mark done">${svg("check")}</button>
     <button class="grow td-open" data-act="open"><span class="t">${esc(i.title)}</span><span class="s">${esc(meta)}</span></button>
@@ -109,6 +122,8 @@ async function render() {
 
   parts.push(`<header class="td-head"><div><div class="td-eyebrow">${evening ? "Tonight, getting ready for" : "Today"}</div><h1>${esc(dateText)}</h1></div>
     <button class="pill-btn" id="td-add">${svg("plus")} Quick add</button></header>`);
+  parts.push(`<div class="td-lists" role="group" aria-label="Show list">${[{ id: "all", name: "All" }, ...g.lists].map(l =>
+    `<button data-list="${esc(l.id)}" aria-pressed="${g.pick === l.id}">${l.color ? `<i style="background:${esc(l.color)}"></i>` : ""}${esc(l.name)}</button>`).join("")}</div>`);
 
   if (g.missedList.length) parts.push(`<button class="ap-card ap-row td-missed" data-go="#reminders"><span class="tile-ic" style="background:#d23c41">${svg("bell")}</span><span class="grow"><span class="t">${g.missedList.length} reminder${g.missedList.length === 1 ? "" : "s"} came due while GooseOS was closed</span><span class="s">${esc(g.missedList.slice(0, 3).map(m => m.title).join(" · "))}</span></span>${svg("chevronRight")}</button>`);
 
@@ -126,7 +141,7 @@ async function render() {
     ? `<div class="ap-card">${g.focusList.map(i => itemRow(i, now)).join("")}</div>`
     : `<div class="ap-card"><div class="ap-empty"><b>Nothing due ${evening ? "tomorrow" : "today"}</b>${g.soon.length ? `Next up: ${esc(g.soon[0].title)}, ${esc(dueLabel(g.soon[0].due))}.` : "Enjoy it."}</div></div>`}</section>`);
 
-  parts.push(`<div class="td-cols"><section class="ap-sec"><h3>${evening ? "Tomorrow's classes" : "Classes"}</h3>${classBlock(g)}</section>
+  parts.push(`<div class="td-cols">${g.showClasses ? `<section class="ap-sec"><h3>${evening ? "Tomorrow's classes" : "Classes"}</h3>${classBlock(g)}</section>` : ""}
     ${g.sums.length ? `<section class="ap-sec"><h3>At a glance</h3><div class="td-sums">${g.sums.map(sumCard).join("")}</div></section>` : ""}</div>`);
 
   if (g.soon.length) parts.push(`<section class="ap-sec"><h3>Coming up<span class="n">${g.soon.length}</span></h3><div class="ap-card">${g.soon.map(i => itemRow(i, now)).join("")}</div></section>`);
@@ -148,6 +163,8 @@ async function mount(el, ctx) {
   el.innerHTML = `<div class="ap-bar"><button class="ap-home" data-home aria-label="Home">${svg("chevronLeft")}Home</button><span class="ap-title">Today</span></div>
     <div class="ap-scroll"><div class="ap-body" id="td-body"></div></div>`;
   el.addEventListener("click", async e => {
+    const lp = e.target.closest("[data-list]");
+    if (lp) { setPick(lp.dataset.list); render(); return; }
     const go = e.target.closest("[data-go]");
     if (go) { location.hash = go.dataset.go.replace(/^#/, ""); return; }
     const b = e.target.closest("[data-act]"); if (!b) return;
@@ -181,13 +198,13 @@ async function widget(el) {
   const more = (evening ? 0 : g.late.length) + g.focusList.length - list.length;
   const c = g.cls;
   let classLine = "";
-  if (c.courses.length) {
+  if (c.courses.length && g.showClasses) {
     if (evening) { const f = g.tomorrowClasses[0]; classLine = f ? `First class tomorrow: <b>${esc(f.course.code)}</b> at ${fmtTime(f.meeting.start)}` : "No classes tomorrow"; }
     else if (c.now) classLine = `Now: <b>${esc(c.now.course.code)}</b>, ends in ${inTime(c.now.end - now)}${c.next ? ` · next ${esc(c.next.course.code)} at ${fmtTime(c.next.meeting.start)}` : ""}`;
     else if (c.next) classLine = `Next class: <b>${esc(c.next.course.code)}</b> at ${fmtTime(c.next.meeting.start)}${c.next.meeting.room ? ` · ${esc(c.next.meeting.room)}` : ""}`;
     else classLine = c.today.length ? "Done with classes for today" : "No classes today";
   }
-  el.innerHTML = `<div class="w-k">${svg(evening ? "moon" : "sun")}${evening ? "Tomorrow" : "Today"}${g.late.length && !evening ? ` · <span style="color:var(--bad)">${g.late.length} overdue</span>` : ""}</div>
+  el.innerHTML = `<div class="w-k">${svg(evening ? "moon" : "sun")}${evening ? "Tomorrow" : "Today"}${g.pick !== "all" ? ` · ${esc(byId(g.lists, g.pick).name)}` : ""}${g.late.length && !evening ? ` · <span style="color:var(--bad)">${g.late.length} overdue</span>` : ""}</div>
     <div class="w-td-list">${list.length ? list.map(i => `<div class="w-td ${i.due < now ? "late" : i.due - now < 3 * 3600e3 ? "soon" : ""}"><b>${esc(i.title)}</b><span>${esc([i.course, i.due < now ? "late" : timeOnly(i.due)].filter(Boolean).join(" · "))}</span></div>`).join("")
       : `<div class="w-td-empty">Nothing due ${evening ? "tomorrow" : "today"}${g.soon.length ? `. Next: ${esc(g.soon[0].title)}, ${esc(dueLabel(g.soon[0].due))}` : ""}.</div>`}
       ${more > 0 ? `<div class="w-td-more">+ ${more} more</div>` : ""}</div>

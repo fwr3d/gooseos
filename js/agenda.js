@@ -6,21 +6,27 @@
 //                    kind: "deadline" | "step" | "task" | ...
 //                    open: hash to open it, like "#deadlines"
 //                    loud: true lets a ping buzz in quiet hours and during class (timers you just started)
+//                    list: a list id from js/lists.js (optional; see APP_LIST below)
 //   complete(key) -> marks that item done
 // Hidden apps are left out. Reminders and Today read only this list.
 import apps from "./apps/index.js";
 import * as store from "./store.js";
+import { loadLists, listOf } from "./lists.js";
+
+// the list for items from apps that don't name one (anything with a course is School)
+const APP_LIST = { events: "frat", wallet: "money", laundry: "personal", reset: "personal" };
 
 let cache = null;
 store.onChange(() => { cache = null; });
 
 async function collect() {
-  const out = [];
+  const out = [], ls = await loadLists();
   await Promise.all(apps.filter(a => a.agenda && !a.hidden).map(async a => {
     try {
       for (const it of (await a.agenda()) || []) {
         if (!it || !it.key) continue;
-        out.push({ kind: "item", done: false, ...it, app: a.id, appName: a.name, open: it.open || `#${a.id}` });
+        const list = (it.list || it.course) ? listOf(it, ls) : (APP_LIST[a.id] || "personal");
+        out.push({ kind: "item", done: false, ...it, list, app: a.id, appName: a.name, open: it.open || `#${a.id}` });
       }
     } catch (e) { console.error(`agenda from ${a.id} failed`, e); }
   }));

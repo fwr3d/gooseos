@@ -3,10 +3,13 @@
 // subscription link; Gradescope, Ed and anything else go in with quick add.
 //
 // Saved through the shared store as items of app "deadlines":
-//   { title, course, due (ms or null), source, done, url?, uid?, edited?, created }
+//   { title, course, list?, due (ms or null), source, done, url?, uid?, edited?, created }
+//   list: a list id from js/lists.js (school, frat, personal, money, or yours).
+//   Without one, it's School when there's a course and Personal when there isn't.
 // Settings live in app "deadlines-config", item "brightspace": { url, lastSync }.
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
+import * as lists from "../../lists.js";
 import { parseCapture, dueLabel, toLocalInput } from "./parse.js";
 import { parseICS, eventsToDeadlines, idFor } from "./ics.js";
 
@@ -53,10 +56,10 @@ const isExam = d => d.type === "exam" || (/\b(exam|midterm|final)\b/i.test(d.tit
 
 /** Shared agenda (read by Reminders and Today): open deadlines plus ones finished in the last 2 days. */
 export async function agenda() {
-  const cutoff = Date.now() - 2 * 864e5;
+  const cutoff = Date.now() - 2 * 864e5, ls = await lists.loadLists();
   return (await loadDeadlines())
     .filter(d => !d.done || (d.due || 0) > cutoff)
-    .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: isExam(d) ? "exam" : "deadline", course: d.course || "", done: !!d.done, open: `#${APP}/${d.id}` }));
+    .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: isExam(d) ? "exam" : "deadline", course: d.course || "", list: lists.listOf(d, ls), done: !!d.done, open: `#${APP}/${d.id}` }));
 }
 
 /** Mark one agenda item done ("deadlines:<id>"). */
@@ -67,10 +70,10 @@ export async function complete(key) {
 }
 /** Add a deadline from quick-capture text. Returns the saved item, or null if empty. */
 export async function addFromText(text) {
-  const p = parseCapture(text, new Date(), await knownCourses());
+  const p = parseCapture(text, new Date(), await knownCourses(), await lists.loadLists());
   if (!p.title && !p.course) return null;
   const id = "d-" + uid();
-  const item = { title: p.title || p.course, course: p.course, due: p.due ? p.due.getTime() : null, source: p.source || "manual", done: false, created: Date.now() };
+  const item = { title: p.title || p.course, course: p.course, list: p.list || (p.course ? "school" : "personal"), due: p.due ? p.due.getTime() : null, source: p.source || "manual", done: false, created: Date.now() };
   await store.put(APP, id, item);
   return { id, ...item };
 }
@@ -109,7 +112,9 @@ export async function syncBrightspace() {
 let ctx0, root;
 const $ = s => root.querySelector(s);
 let items = [];
-let filter = "all";
+let allLists = [];
+let listFilter = "all";   // a list id, or "all"
+let filter = "all";       // a course, inside the School list
 let showAllDone = false;
 let lastUndo = null;
 
@@ -133,26 +138,38 @@ function groups(list, now = new Date()) {
 function rowHtml(d) {
   const left = d.done ? { text: "", cls: "" } : timeLeft(d.due);
   const src = SOURCES[d.source] || SOURCES.manual;
+  const lid = lists.listOf(d, allLists), l = lists.byId(allLists, lid);
+  // School items already show their course; everything else shows its list
+  const tag = d.course && lid === "school" ? `<span class="chip course" style="background:${courseColor(d.course)}">${esc(d.course)}</span>`
+    : `${l ? `<span class="chip course" style="background:${esc(l.color)}">${esc(l.name)}</span>` : ""}${d.course ? `<span class="chip course" style="background:${courseColor(d.course)}">${esc(d.course)}</span>` : ""}`;
   return `<div class="dl-row ${d.done ? "done" : ""}" data-id="${d.id}">
     <button class="dl-check" data-act="toggle" aria-label="${d.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
     <button class="dl-main" data-act="edit">
       <span class="t">${esc(d.title)}</span>
-      <span class="dl-meta">${d.course ? `<span class="chip course" style="background:${courseColor(d.course)}">${esc(d.course)}</span>` : ""}<span title="${src.label}">${svg(src.icon)}</span><span>${d.due ? esc(dueLabel(d.due)) : "No date"}</span></span>
+      <span class="dl-meta">${tag}<span title="${src.label}">${svg(src.icon)}</span><span>${d.due ? esc(dueLabel(d.due)) : "No date"}</span></span>
     </button>
     ${left.text ? `<span class="dl-left ${left.cls}">${left.text}</span>` : ""}
   </div>`;
 }
 
 async function render() {
-  items = await loadDeadlines();
+  [items, allLists] = await Promise.all([loadDeadlines(), lists.loadLists()]);
   const cfg = await getConfig();
-  const courses = [...new Set(items.filter(d => !d.done && d.course).map(d => d.course))].sort();
+  if (listFilter !== "all" && !allLists.some(l => l.id === listFilter)) listFilter = "all";
+  const inList = listFilter === "all" ? items : items.filter(d => lists.listOf(d, allLists) === listFilter);
+  // course buttons only inside School
+  const courses = listFilter === "school" ? [...new Set(inList.filter(d => !d.done && d.course).map(d => d.course))].sort() : [];
   if (filter !== "all" && !courses.includes(filter)) filter = "all";
-  const shown = filter === "all" ? items : items.filter(d => d.course === filter);
+  const shown = filter === "all" ? inList : inList.filter(d => d.course === filter);
   const g = groups(shown);
+  const openIn = id => items.filter(d => !d.done && lists.listOf(d, allLists) === id).length;
 
-  $("#dl-filters").innerHTML = courses.length ? [`<button data-f="all" aria-pressed="${filter === "all"}">All</button>`,
+  $("#dl-filters").innerHTML = [`<button data-l="all" aria-pressed="${listFilter === "all"}">All</button>`,
+    ...allLists.map(l => { const n = openIn(l.id); return `<button data-l="${esc(l.id)}" aria-pressed="${listFilter === l.id}"><i style="background:${esc(l.color)}"></i>${esc(l.name)}${n ? `<span class="dl-fn">${n}</span>` : ""}</button>`; }),
+    `<button data-act="lists" aria-label="Edit lists" title="Edit lists">${svg("pencil")}</button>`].join("");
+  $("#dl-courses").innerHTML = courses.length > 1 ? [`<button data-f="all" aria-pressed="${filter === "all"}">All classes</button>`,
     ...courses.map(c => `<button data-f="${esc(c)}" aria-pressed="${filter === c}"><i style="background:${courseColor(c)}"></i>${esc(c)}</button>`)].join("") : "";
+  $("#dl-courses").hidden = courses.length < 2;
 
   $("#dl-connect").innerHTML = cfg.url ? "" : connectHtml();
   wireConnect();
@@ -160,7 +177,11 @@ async function render() {
   const SECS = [["late", "Overdue"], ["today", "Today"], ["tomorrow", "Tomorrow"], ["week", "This week"], ["later", "Later"], ["nodate", "No date"]];
   let html = SECS.filter(([k]) => g[k].length).map(([k, label]) =>
     `<section class="dl-sec ${k === "late" ? "late" : ""}"><h3>${label}<span class="n">${g[k].length}</span></h3><div class="dl-list">${g[k].map(rowHtml).join("")}</div></section>`).join("");
-  if (!html) html = `<div class="dl-empty"><b>${items.length ? "All caught up" : "Nothing here yet"}</b>${items.length ? "No open deadlines. Nice." : "Type one above, like “cs proj 3 fri 11:59”, or connect Brightspace."}</div>`;
+  if (!html) {
+    const ln = listFilter !== "all" ? lists.byId(allLists, listFilter) : null;
+    html = ln && listFilter !== "school" ? `<div class="dl-empty"><b>Nothing in ${esc(ln.name)}</b>Add one above, like “${esc(ln.name.toLowerCase())} ${ln.id === "money" ? "pay rent" : ln.id === "frat" ? "chapter meeting" : "call mom"} sun 7pm”.</div>`
+      : `<div class="dl-empty"><b>${shown.length ? "All caught up" : "Nothing here yet"}</b>${shown.length ? "No open deadlines. Nice." : "Type one above, like “cs proj 3 fri 11:59”, or connect Brightspace."}</div>`;
+  }
   if (g.done.length) {
     const doneList = showAllDone ? g.done : g.done.slice(0, 5);
     html += `<section class="dl-sec"><h3>Done<span class="n">${g.done.length}</span></h3><div class="dl-list">${doneList.map(rowHtml).join("")}</div>
@@ -227,14 +248,16 @@ async function runSync(manual) {
 function openEdit(d) {
   const back = document.createElement("div"); back.className = "dl-back";
   const isNew = !d;
-  d = d || { title: "", course: "", due: null, source: "manual", done: false };
+  d = d || { title: "", course: "", list: listFilter !== "all" ? listFilter : "", due: null, source: "manual", done: false };
+  const curList = isNew && !d.list ? "school" : lists.listOf(d, allLists);
   back.innerHTML = `<form class="dl-sheet" role="dialog" aria-modal="true" aria-label="${isNew ? "New deadline" : "Edit deadline"}">
     <h2>${isNew ? "New deadline" : "Edit deadline"}</h2>
     <label>What<input class="field" name="title" required value="${esc(d.title)}" placeholder="Project 3"></label>
     <div class="two">
-      <label>Course<input class="field" name="course" value="${esc(d.course)}" placeholder="CS 18000" list="dl-courses"></label>
-      <label>From<select class="field" name="source">${Object.entries(SOURCES).map(([k, v]) => `<option value="${k}" ${d.source === k ? "selected" : ""}>${v.label}</option>`).join("")}</select></label>
+      <label>List<select class="field" name="list">${allLists.map(l => `<option value="${esc(l.id)}" ${curList === l.id ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select></label>
+      <label>Course<input class="field" name="course" value="${esc(d.course)}" placeholder="${curList === "school" ? "CS 18000" : "None"}" list="dl-course-opts"></label>
     </div>
+    <label>From<select class="field" name="source">${Object.entries(SOURCES).map(([k, v]) => `<option value="${k}" ${d.source === k ? "selected" : ""}>${v.label}</option>`).join("")}</select></label>
     <label>Due<input class="field" type="datetime-local" name="due" value="${d.due ? toLocalInput(d.due) : ""}"></label>
     ${d.url ? `<a class="link-btn" href="${esc(d.url)}" target="_blank" rel="noopener">${svg("externalLink")} Open in Brightspace</a>` : ""}
     ${isNew ? "" : `<button type="button" class="link-btn" data-act="breakdown" hidden>${svg("listChecks")} Break it down into steps</button>`}
@@ -242,7 +265,7 @@ function openEdit(d) {
       ${isNew ? "<span></span>" : `<button type="button" class="pill-btn secondary" data-act="del" style="color:var(--bad)">Delete</button>`}
       <span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">Save</button></span>
     </div>
-    <datalist id="dl-courses">${[...new Set(items.map(i => i.course).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join("")}</datalist>
+    <datalist id="dl-course-opts">${[...new Set(items.map(i => i.course).filter(Boolean))].map(c => `<option value="${esc(c)}">`).join("")}</datalist>
   </form>`;
   root.appendChild(back);
   const f = back.querySelector("form");
@@ -261,7 +284,7 @@ function openEdit(d) {
   f.onsubmit = async e => {
     e.preventDefault();
     const fd = new FormData(f);
-    const next = { ...d, title: fd.get("title").trim(), course: fd.get("course").trim(), source: fd.get("source"), due: fd.get("due") ? new Date(fd.get("due")).getTime() : null };
+    const next = { ...d, title: fd.get("title").trim(), course: fd.get("course").trim(), list: fd.get("list"), source: fd.get("source"), due: fd.get("due") ? new Date(fd.get("due")).getTime() : null };
     if (!next.title) return;
     const { id, ...data } = next;
     if (!isNew && d.source === "brightspace") data.edited = true;
@@ -269,6 +292,55 @@ function openEdit(d) {
     close(); render();
   };
   setTimeout(() => f.querySelector('[name="title"]').focus(), 50);
+}
+
+function saveFilter() { try { localStorage.setItem("dl-list", listFilter); } catch (e) { /* ignore */ } }
+
+/* ---------- lists sheet: rename, recolor, add, remove ---------- */
+function openLists() {
+  const back = document.createElement("div"); back.className = "dl-back";
+  const swatches = (name, cur) => `<span class="dl-sw">${lists.COLORS.map(c => `<label><input type="radio" name="${name}" value="${c}" ${c === cur ? "checked" : ""}><i style="background:${c}"></i></label>`).join("")}</span>`;
+  const row = l => `<div class="dl-lrow" data-lid="${esc(l.id)}">
+      <input class="field" data-k="name" value="${esc(l.name)}" aria-label="List name" required>
+      ${swatches("c-" + l.id, l.color)}
+      ${l.starter ? `<span class="dl-lx"></span>` : `<button type="button" class="icon-btn dl-lx" data-act="rm" aria-label="Remove ${esc(l.name)}">${svg("x")}</button>`}
+    </div>`;
+  back.innerHTML = `<form class="dl-sheet" role="dialog" aria-modal="true" aria-label="Lists">
+    <h2>Lists</h2>
+    <span class="dl-note">Quick add puts things in a list when you start with its name (“frat dues fri”) or tag it anywhere (“call mom sun #personal”).</span>
+    <div class="dl-lrows">${allLists.map(row).join("")}</div>
+    <div class="dl-lnew"><input class="field" id="dl-lnew" placeholder="New list, like Work or Gym" aria-label="New list name"><button type="button" class="pill-btn secondary" data-act="add">Add</button></div>
+    <div class="acts"><span></span><span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">Save</button></span></div>
+  </form>`;
+  root.appendChild(back);
+  const f = back.querySelector("form"), close = () => back.remove();
+  back.addEventListener("click", e => { if (e.target === back) close(); });
+  f.querySelector('[data-act="cancel"]').onclick = close;
+  const removed = new Set();
+  f.addEventListener("click", e => {
+    const rm = e.target.closest('[data-act="rm"]');
+    if (rm) { const r = rm.closest("[data-lid]"); removed.add(r.dataset.lid); r.remove(); }
+  });
+  f.querySelector('[data-act="add"]').onclick = async () => {
+    const inp = f.querySelector("#dl-lnew"), name = inp.value.trim();
+    if (!name) return inp.focus();
+    if (lists.matchList(name, allLists)) { ctx0.toast(`There's already a list called ${name}.`); return; }
+    await lists.addList(name);
+    close(); await render(); openLists();
+  };
+  f.querySelector("#dl-lnew").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); f.querySelector('[data-act="add"]').click(); } });
+  f.onsubmit = async e => {
+    e.preventDefault();
+    for (const id of removed) await lists.removeList(id);
+    for (const r of f.querySelectorAll("[data-lid]")) {
+      const l = allLists.find(x => x.id === r.dataset.lid); if (!l) continue;
+      const name = r.querySelector('[data-k="name"]').value.trim() || l.name;
+      const color = (r.querySelector("input[type=radio]:checked") || {}).value || l.color;
+      if (name !== l.name || color !== l.color) await lists.saveList(l.id, { name, color, order: l.order });
+    }
+    close(); render();
+    if (removed.size) ctx0.toast(`Removed. Anything in ${removed.size === 1 ? "that list" : "those lists"} is now in Personal.`);
+  };
 }
 
 /* ---------- markup ---------- */
@@ -283,20 +355,24 @@ const MARKUP = () => `
   </div>
   <div class="dl-scroll"><div class="dl-body">
     <form class="dl-add" id="dl-add" autocomplete="off">
-      <div class="dl-add-row">${svg("plus")}<input id="dl-add-in" placeholder="Add a deadline… “cs proj 3 fri 11:59”" aria-label="Add a deadline"><button class="pill-btn" type="submit">Add</button></div>
+      <div class="dl-add-row">${svg("plus")}<input id="dl-add-in" placeholder="“cs proj 3 fri 11:59” or “frat dues fri”" aria-label="Add a deadline or reminder"><button class="pill-btn" type="submit">Add</button></div>
       <div class="dl-preview" id="dl-add-prev"></div>
     </form>
     <div id="dl-connect"></div>
-    <div class="dl-filters" id="dl-filters"></div>
+    <div class="dl-filters" id="dl-filters" role="group" aria-label="List"></div>
+    <div class="dl-filters dl-courses" id="dl-courses" role="group" aria-label="Class" hidden></div>
     <div id="dl-sections"></div>
   </div></div>`;
 
 /** Shared live preview for quick-capture inputs. */
 export async function previewHtml(text) {
   if (!text.trim()) return "";
-  const p = parseCapture(text, new Date(), await knownCourses());
+  const ls = await lists.loadLists();
+  const p = parseCapture(text, new Date(), await knownCourses(), ls);
   const src = p.source ? SOURCES[p.source] : null;
+  const l = lists.byId(ls, p.list || (p.course ? "school" : "personal"));
   return [
+    l && (p.list || !p.course) ? `<span class="chip course" style="background:${esc(l.color)}">${esc(l.name)}</span>` : "",
     p.course ? `<span class="chip course" style="background:${courseColor(p.course)}">${esc(p.course)}</span>` : "",
     `<span class="chip">${esc(p.title || "…")}</span>`,
     `<span class="chip">${svg("clock")}${p.due ? esc(dueLabel(p.due)) : "No date"}</span>`,
@@ -329,7 +405,12 @@ async function mount(el, ctx) {
   $("#dl-new").onclick = () => openEdit(null);
   $("#dl-sync").onclick = () => runSync(true);
   $("#dl-bs").onclick = () => { tuckCard(false); render(); };
-  $("#dl-filters").addEventListener("click", e => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; render(); } });
+  $("#dl-filters").addEventListener("click", e => {
+    if (e.target.closest('[data-act="lists"]')) return openLists();
+    const b = e.target.closest("[data-l]"); if (b) { listFilter = b.dataset.l; filter = "all"; saveFilter(); render(); }
+  });
+  $("#dl-courses").addEventListener("click", e => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; render(); } });
+  try { listFilter = localStorage.getItem("dl-list") || "all"; } catch (e) { /* ignore */ }
   $("#dl-sections").addEventListener("click", async e => {
     const row = e.target.closest(".dl-row"); if (!row) return;
     const d = items.find(x => x.id === row.dataset.id); if (!d) return;
@@ -341,7 +422,7 @@ async function mount(el, ctx) {
       render();
     } else if (act === "edit") openEdit(d);
   });
-  store.onChange(ch => { if ((ch.app === APP || ch.app === CFG) && ctx0.isActive()) render(); });
+  store.onChange(ch => { if ((ch.app === APP || ch.app === CFG || ch.app === "lists") && ctx0.isActive()) render(); });
   await render();
 }
 

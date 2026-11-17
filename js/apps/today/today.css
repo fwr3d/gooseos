@@ -34,3 +34,10 @@
 .w-td-foot .ic{width:13px;height:13px}
 .w-td-foot b{color:var(--on-wall);font-weight:600}
 .td-note{gap:4px;font-size:15px;line-height:1.45;border-left:3px solid #0ea5e9}
+
+/* list picker */
+.td-lists{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:-6px 0 -2px}
+.td-lists::-webkit-scrollbar{display:none}
+.td-lists button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:99px;padding:6px 12px;font-size:13px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.td-lists button i{width:8px;height:8px;border-radius:50%}
+.td-lists button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
