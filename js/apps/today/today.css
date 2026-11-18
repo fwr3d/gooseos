@@ -41,3 +41,8 @@
 .td-lists button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:99px;padding:6px 12px;font-size:13px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .td-lists button i{width:8px;height:8px;border-radius:50%}
 .td-lists button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+
+/* old overdue + anytime */
+.td-old{flex-wrap:wrap;background:color-mix(in srgb,var(--bad) 5%,transparent)}
+.td-old .pill-btn{padding:6px 12px;font-size:13px}
+.td-more{border:0;background:none;width:100%;text-align:left;cursor:pointer;color:inherit;min-height:40px}

@@ -138,7 +138,7 @@ async function fire(item, now) {
   const body = whenText(item, now);
   const shown = await notify.show(item.kind === "ping" ? item.title : titleOf(item), {
     body: item.kind === "ping" ? item.body || "" : body, tag: item.key, data: { key: item.key, open: item.open },
-    actions: item.kind === "ping" ? [] : [{ action: "done", title: "Done" }, { action: "snooze", title: "Snooze 1 hour" }],
+    actions: item.kind === "ping" ? [] : [{ action: "done", title: "Done" }, notifSnooze(now)],
   });
   if (!shown && ctx0 && now - lastFired > 4000) {
     // no notification permission: at least show it inside GooseOS
@@ -148,15 +148,34 @@ async function fire(item, now) {
   return shown;
 }
 
-export async function snooze(key, ms = H) {
+/** Snooze choices: 1 hour, tonight at 8, tomorrow at 9 AM. "Tonight" only before 7 PM. */
+const TONIGHT = 20, MORNING = 9;
+function snoozeTimes(now = Date.now()) {
+  const d = new Date(now), at = (dayOff, h) => { const x = new Date(d); x.setDate(x.getDate() + dayOff); x.setHours(h, 0, 0, 0); return +x; };
+  const out = [{ id: "1h", label: "1 hour", at: now + H, msg: "Snoozed for 1 hour." }];
+  if (d.getHours() < TONIGHT - 1) out.push({ id: "tonight", label: "Tonight", at: at(0, TONIGHT), msg: "Snoozed until 8 PM." });
+  // before 5 AM, "tomorrow morning" means later today
+  out.push({ id: "am", label: "Tomorrow morning", at: at(d.getHours() < 5 ? 0 : 1, MORNING), msg: "Snoozed until 9 AM." });
+  return out;
+}
+
+export async function snooze(key, ms = H) { return snoozeTo(key, Date.now() + ms); }
+export async function snoozeTo(key, until) {
   const st = (await store.get(APP, key)) || { sent: [] };
-  await store.put(APP, key, { ...st, snoozedUntil: Date.now() + ms, snoozeFired: false });
+  await store.put(APP, key, { ...st, snoozedUntil: until, snoozeFired: false });
+}
+
+/** The notification's snooze button: 1 hour in the daytime, tomorrow morning in the evening. */
+function notifSnooze(now = Date.now()) {
+  return new Date(now).getHours() >= 18 || new Date(now).getHours() < 5
+    ? { action: "snooze-am", title: "Snooze till morning" } : { action: "snooze", title: "Snooze 1 hour" };
 }
 
 async function onAction({ action, data }) {
   const key = data && data.key; if (!key) return;
   if (action === "done") { await agenda.complete(key); if (ctx0) ctx0.toast("Marked done."); }
   else if (action === "snooze") { await snooze(key); if (ctx0) ctx0.toast("Snoozed for 1 hour."); }
+  else if (action === "snooze-am") { const t = snoozeTimes().find(s => s.id === "am"); await snoozeTo(key, t.at); if (ctx0) ctx0.toast(t.msg); }
 }
 
 function start(ctx) {
@@ -220,7 +239,7 @@ function itemRow(item, extra, now) {
     <button class="ap-check" data-act="done" aria-label="Mark done">${svg("check")}</button>
     <button class="grow rm-open" data-act="open" style="border:0;background:none;text-align:left;padding:0;color:inherit"><span class="t">${esc(titleOf(item))}</span><span class="s">${esc(extra)}</span></button>
     ${late ? `<span class="ap-pill bad">late</span>` : ""}
-    <button class="icon-btn" data-act="snooze" aria-label="Snooze 1 hour" title="Snooze 1 hour">${svg("bellOff")}</button>
+    <button class="icon-btn" data-act="snooze" aria-label="Snooze" title="Snooze" aria-haspopup="menu">${svg("bellOff")}</button>
   </div>`;
 }
 
@@ -310,6 +329,16 @@ async function render() {
     ctx0.toast(ok ? "Sent. Check your notifications." : "Notifications are off, so reminders show here instead.");
   };
 }
+function closeSnoozeMenu() { root.querySelectorAll(".rm-snz").forEach(m => m.remove()); }
+function openSnoozeMenu(btn, key) {
+  const had = btn.parentElement.querySelector(".rm-snz");
+  closeSnoozeMenu(); if (had) return;
+  const m = document.createElement("div"); m.className = "rm-snz"; m.setAttribute("role", "menu"); m.dataset.key = key;
+  m.innerHTML = snoozeTimes().map(s => `<button role="menuitem" data-snz="${s.id}">${s.label}<span>${esc(dueLabel(s.at))}</span></button>`).join("");
+  btn.parentElement.appendChild(m);
+  m.querySelector("button").focus();
+}
+
 async function save(patch) { await store.put(APP, "settings", { ...(await getSettings()), ...patch }); render(); }
 
 let cssLoaded = false;
@@ -326,10 +355,16 @@ async function mount(el, ctx) {
     <div class="ap-bar"><button class="ap-home" data-home aria-label="Home">${svg("chevronLeft")}Home</button><span class="ap-title">Reminders</span></div>
     <div class="ap-scroll"><div class="ap-body" id="rm-body"></div></div>`;
   el.addEventListener("click", async e => {
-    const b = e.target.closest("[data-act]"); if (!b) return;
+    const pick = e.target.closest("[data-snz]");
+    if (pick) {
+      const t = snoozeTimes().find(s => s.id === pick.dataset.snz);
+      if (t) { await snoozeTo(pick.closest(".rm-snz").dataset.key, t.at); ctx0.toast(t.msg); }
+      closeSnoozeMenu(); render(); return;
+    }
+    const b = e.target.closest("[data-act]"); if (!b) { closeSnoozeMenu(); return; }
     const key = b.closest("[data-key]").dataset.key;
     if (b.dataset.act === "done") { await agenda.complete(key); ctx0.toast("Marked done."); }
-    else if (b.dataset.act === "snooze") { await snooze(key); ctx0.toast("Snoozed for 1 hour."); }
+    else if (b.dataset.act === "snooze") { openSnoozeMenu(b, key); return; }
     else if (b.dataset.act === "open") { const it = (await agenda.list()).find(i => i.key === key); if (it) location.hash = it.open.replace(/^#/, ""); return; }
     render();
   });

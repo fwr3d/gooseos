@@ -129,13 +129,31 @@ function guessCat(place, list) {
   for (const [re, c] of KEYWORDS) if (re.test(place)) return c;
   return "other";
 }
-/** "13 chipotle", "chipotle 12.50", "$8 kroger" */
-function parseQuick(text) {
-  const m = text.match(/\$?(\d+(?:[.,]\d{1,2})?)/);
+const WEEKDAYS = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thur: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
+/** A past day said in words: "yesterday", "fri", "last fri", "2 days ago". Returns { at, words } or null. */
+function parseWhen(text, now = Date.now()) {
+  const noonOf = t => dayStart(t) + 12 * 3600e3;   // past days get noon: the exact time doesn't matter
+  let m;
+  if ((m = text.match(/\b(yesterday|yday|ytd)\b/i))) return { at: noonOf(addDays(now, -1)), words: m[0] };
+  if ((m = text.match(/\b(\d)\s+days?\s+ago\b/i))) return { at: noonOf(addDays(now, -+m[1])), words: m[0] };
+  // bare "sun" is too often a name (Sun King), so it needs "sunday" or "last sun"
+  if ((m = text.match(/\b(?:last\s+)?(sun(?:day)?|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?|sat(?:urday)?)\b/i))
+    && !(/^sun$/i.test(m[0]))) {
+    let back = (new Date(now).getDay() - WEEKDAYS[m[1].toLowerCase()] + 7) % 7;
+    if (back === 0 && /^last/i.test(m[0])) back = 7;   // "fri" on a Friday = today, "last fri" = a week ago
+    return { at: back === 0 ? now : noonOf(addDays(now, -back)), words: m[0] };
+  }
+  return null;
+}
+/** "13 chipotle", "chipotle 12.50", "$8 kroger", "12 chipotle yesterday" */
+function parseQuick(text, now = Date.now()) {
+  const when = parseWhen(text, now);
+  const rest = when ? text.replace(when.words, " ") : text;
+  const m = rest.match(/\$?(\d+(?:[.,]\d{1,2})?)/);
   if (!m) return null;
   const cents = toCents(m[1].replace(",", "."));
-  const place = titleCase(text.replace(m[0], "").replace(/\s+/g, " ").trim());
-  return cents > 0 ? { cents, place } : null;
+  const place = titleCase(rest.replace(m[0], "").replace(/\s+/g, " ").trim());
+  return cents > 0 ? { cents, place, ...(when && when.at !== now ? { at: when.at } : {}) } : null;
 }
 async function addPurchase(p) {
   const id = "p-" + Date.now().toString(36) + uid();
@@ -247,7 +265,7 @@ function renderBudget(st) {
     <section class="ap-sec"><h3>This week<span class="n">${shown.length}</span></h3>
       ${days.length ? `<div class="ap-card">${days.map(g => `<div class="wl-day"><span>${new Date(g.d).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</span><span>${money(g.items.reduce((n, p) => n + p.cents, 0))}</span></div>
         ${g.items.map(p => `<div class="ap-row wl-row" data-p="${p.id}"><i class="ap-swatch" style="background:${cat(p.cat).color}"></i>
-          <span class="grow"><span class="t">${esc(p.place || cat(p.cat).label)}</span><span class="s">${esc(cat(p.cat).label)} · ${new Date(p.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}${p.at < base.from ? " · before you started" : ""}</span></span>
+          <button class="grow wl-edit" data-edit="${p.id}" aria-label="Edit ${esc(p.place || cat(p.cat).label)}"><span class="t">${esc(p.place || cat(p.cat).label)}</span><span class="s">${esc(cat(p.cat).label)} · ${new Date(p.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}${p.note ? ` · ${esc(p.note)}` : ""}${p.at < base.from ? " · before you started" : ""}</span></button>
           <b class="wl-amt">${money(p.cents)}</b><button class="icon-btn" data-rm="${p.id}" aria-label="Remove">${svg("x")}</button></div>`).join("")}`).join("")}</div>`
       : `<div class="ap-card"><div class="ap-empty"><b>Nothing logged this week</b>Your week runs ${wd(weekOf(Date.now(), s.weekStart), "long")} to ${wd(addDays(weekOf(Date.now(), s.weekStart), 6), "long")}.</div></div>`}
     </section>`;
@@ -261,7 +279,8 @@ function renderBudget(st) {
     inp.value = ""; pickCat = "auto";
     await render();
     $("#wl-text").focus();
-    undoToast(`Added ${money(q.cents)}${q.place ? " · " + q.place : ""} (${cat(c).label})`, () => store.remove(APP, id));
+    const when = q.at ? ` on ${wd(q.at, "long")}` : "";
+    undoToast(`Added ${money(q.cents)}${q.place ? " · " + q.place : ""}${when} (${cat(c).label})`, () => store.remove(APP, id));
   };
   root.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => {
     pickCat = b.dataset.cat;
@@ -274,12 +293,47 @@ function renderBudget(st) {
     await render();
     undoToast(`Added ${money(c.cents)} · ${c.place}`, () => store.remove(APP, id));
   });
+  root.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { const p = list.find(x => x.id === b.dataset.edit); if (p) editPurchase(p); });
   root.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
     const p = list.find(x => x.id === b.dataset.rm); if (!p) return;
     await store.remove(APP, p.id); await render();
     const { id, ...data } = p;
     undoToast(`Removed ${money(p.cents)}${p.place ? " · " + p.place : ""}`, () => store.put(APP, id, data));
   });
+}
+
+/** Fix a purchase: amount, place, category, day, note. */
+function editPurchase(p) {
+  const back = document.createElement("div"); back.className = "ap-back";
+  const localDT = t => { const d = new Date(t), z = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; };
+  back.innerHTML = `<form class="ap-sheet wl-sheet" role="dialog" aria-modal="true" autocomplete="off"><h2>Edit purchase</h2>
+    <div class="wl-two">
+      <label class="wl-f">Amount<input class="field" name="amt" inputmode="decimal" required value="${(p.cents / 100).toFixed(2)}"></label>
+      <label class="wl-f">Category<select class="field" name="cat">${Object.entries(CATS).map(([k, v]) => `<option value="${k}" ${p.cat === k ? "selected" : ""}>${v.label}</option>`).join("")}</select></label>
+    </div>
+    <label class="wl-f">Place<input class="field" name="place" value="${esc(p.place)}" placeholder="Kroger"></label>
+    <label class="wl-f">When<input class="field" type="datetime-local" name="at" required value="${localDT(p.at)}"></label>
+    <label class="wl-f">Note <span class="wl-opt">(optional)</span><input class="field" name="note" value="${esc(p.note)}" placeholder="Split with roommate"></label>
+    <div class="acts"><button type="button" class="pill-btn danger" data-act="del">Delete</button>
+      <span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">Save</button></span></div></form>`;
+  root.appendChild(back);
+  const f = back.querySelector("form"), close = () => back.remove();
+  back.addEventListener("click", e => { if (e.target === back) close(); });
+  f.querySelector('[data-act="cancel"]').onclick = close;
+  const { id, ...data } = p;
+  f.querySelector('[data-act="del"]').onclick = async () => {
+    close(); await store.remove(APP, id); await render();
+    undoToast(`Removed ${money(p.cents)}${p.place ? " · " + p.place : ""}`, () => store.put(APP, id, data));
+  };
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const cents = toCents(f.amt.value), at = new Date(f.at.value).getTime();
+    if (!(cents > 0)) return f.amt.focus();
+    if (!isFinite(at)) return f.at.focus();
+    await store.put(APP, id, { ...data, cents, cat: f.cat.value, place: f.place.value.trim(), at, note: f.note.value.trim() });
+    close(); render(); ctx0.toast("Saved");
+  };
+  setTimeout(() => f.amt.select(), 50);
 }
 
 /** How a whole month went. */

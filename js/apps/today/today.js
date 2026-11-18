@@ -23,6 +23,8 @@ function setPick(id) { listPick = id; try { localStorage.setItem("td-list", id);
 const APP = "today";
 const EVENING = 20;          // 8 PM: switch to "Tomorrow"
 const HEAVY_MIN = 4 * 60;    // more planned work than this in a day gets a warning
+const OLD_LATE = 3 * 864e5;  // overdue longer than this folds into one "old items" row
+const ANYTIME_MAX = 5;       // undated to-dos shown before "show all"
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const dayStart = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return +d; };
 const addDays = (t, n) => { const d = new Date(dayStart(t)); d.setDate(d.getDate() + n); return +d; };
@@ -47,7 +49,10 @@ async function gather(now = Date.now()) {
   rowLists = pick === "all" ? lists : null;
   const items = pick === "all" ? all : all.filter(i => i.list === pick);
   const todo = items.filter(i => i.due && i.kind !== "ping");
-  const late = todo.filter(i => i.due < now);
+  const anytime = items.filter(i => !i.due && i.kind !== "ping");
+  const allLate = todo.filter(i => i.due < now);
+  // more than 3 days late: usually something you finished but never checked off
+  const late = allLate.filter(i => now - i.due <= OLD_LATE), oldLate = allLate.filter(i => now - i.due > OLD_LATE);
   const today = todo.filter(i => i.due >= now && i.due < t1);
   const tomorrow = todo.filter(i => i.due >= t1 && i.due < t2);
   const soon = todo.filter(i => i.due >= (evening ? t2 : t1) && i.due < t4);
@@ -57,10 +62,11 @@ async function gather(now = Date.now()) {
   const missedList = ((missed && missed.list) || []).filter(m => now - m.at < 2 * 864e5);
   // classes belong to School: hide them when another list is picked
   const showClasses = pick === "all" || pick === "school";
-  return { now, evening, late, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset, lists, pick, showClasses };
+  return { now, evening, late, oldLate, anytime, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset, lists, pick, showClasses };
 }
 
 function pill(i, now) {
+  if (!i.due) return "";
   if (i.due < now) return `<span class="ap-pill bad">late</span>`;
   if (i.due - now < 3 * 3600e3) return `<span class="ap-pill warn">${inTime(i.due - now)}</span>`;
   if (i.due >= addDays(now, 1)) return `<span class="ap-pill">${new Date(i.due).toLocaleDateString(undefined, { weekday: "short" })}</span>`;
@@ -71,7 +77,7 @@ function kindLabel(i) { return i.kind === "step" ? "Step" : i.kind === "task" ? 
 let rowLists = null;   // set by gather(): lists to name on rows, only when showing All
 function itemRow(i, now) {
   const ln = rowLists && i.list && i.list !== "school" && !i.course ? byId(rowLists, i.list).name : "";
-  const meta = [i.course || ln, kindLabel(i), i.due < now ? `was due ${dueLabel(i.due)}` : dueLabel(i.due)].filter(Boolean).join(" · ");
+  const meta = [i.course || ln, kindLabel(i), !i.due ? "" : i.due < now ? `was due ${dueLabel(i.due)}` : dueLabel(i.due)].filter(Boolean).join(" · ");
   return `<div class="ap-row" data-key="${esc(i.key)}">
     <button class="ap-check" data-act="done" aria-label="Mark done">${svg("check")}</button>
     <button class="grow td-open" data-act="open"><span class="t">${esc(i.title)}</span><span class="s">${esc(meta)}</span></button>
@@ -110,7 +116,7 @@ function sumCard(s) {
 }
 
 /* ---------- view ---------- */
-let ctx0, root, timer = null;
+let ctx0, root, timer = null, showOld = false, showAllAnytime = false;
 const $ = s => root.querySelector(s);
 
 async function render() {
@@ -134,12 +140,22 @@ async function render() {
       <button class="ap-check" data-act="pin" data-week="${rs.week}" data-pin="${esc(p.id)}" aria-label="${p.done ? "Done" : "Mark done"}">${svg("check")}</button>
       <button class="grow td-open" data-go="${esc(p.open)}"><span class="t">${esc(p.title)}</span>${p.sub ? `<span class="s">${esc(p.sub)}</span>` : ""}</button></div>`).join("")}</div></section>`);
 
-  if (g.late.length) parts.push(`<section class="ap-sec bad"><h3>Overdue<span class="n">${g.late.length}</span></h3><div class="ap-card">${g.late.map(i => itemRow(i, now)).join("")}</div></section>`);
+  const nOld = g.oldLate.length;
+  if (g.late.length || nOld) parts.push(`<section class="ap-sec bad"><h3>Overdue<span class="n">${g.late.length + nOld}</span></h3><div class="ap-card">${g.late.map(i => itemRow(i, now)).join("")}
+    ${nOld ? `<div class="ap-row td-old"><span class="grow"><span class="t">${nOld} older item${nOld === 1 ? "" : "s"}</span><span class="s">More than 3 days late. Probably done already?</span></span>
+      <button class="pill-btn secondary" data-act="old-show">${showOld ? "Hide" : "Show"}</button><button class="pill-btn secondary" data-act="old-done">Mark all done</button></div>
+      ${showOld ? g.oldLate.map(i => itemRow(i, now)).join("") : ""}` : ""}</div></section>`);
 
   const heavy = g.workMin > HEAVY_MIN ? `<span class="ap-pill warn">about ${Math.round(g.workMin / 60)}h of planned work</span>` : "";
   parts.push(`<section class="ap-sec"><h3>${focusTitle}<span class="n">${g.focusList.length}</span>${heavy}</h3>${g.focusList.length
     ? `<div class="ap-card">${g.focusList.map(i => itemRow(i, now)).join("")}</div>`
     : `<div class="ap-card"><div class="ap-empty"><b>Nothing due ${evening ? "tomorrow" : "today"}</b>${g.soon.length ? `Next up: ${esc(g.soon[0].title)}, ${esc(dueLabel(g.soon[0].due))}.` : "Enjoy it."}</div></div>`}</section>`);
+
+  if (g.anytime.length) {
+    const list = showAllAnytime ? g.anytime : g.anytime.slice(0, ANYTIME_MAX);
+    parts.push(`<section class="ap-sec"><h3>Anytime<span class="n">${g.anytime.length}</span></h3><div class="ap-card">${list.map(i => itemRow(i, now)).join("")}
+      ${g.anytime.length > ANYTIME_MAX ? `<button class="ap-row td-more" data-act="anytime-more"><span class="grow"><span class="s">${showAllAnytime ? "Show fewer" : `Show all ${g.anytime.length}`}</span></span></button>` : ""}</div></section>`);
+  }
 
   parts.push(`<div class="td-cols">${g.showClasses ? `<section class="ap-sec"><h3>${evening ? "Tomorrow's classes" : "Classes"}</h3>${classBlock(g)}</section>` : ""}
     ${g.sums.length ? `<section class="ap-sec"><h3>At a glance</h3><div class="td-sums">${g.sums.map(sumCard).join("")}</div></section>` : ""}</div>`);
@@ -168,6 +184,14 @@ async function mount(el, ctx) {
     const go = e.target.closest("[data-go]");
     if (go) { location.hash = go.dataset.go.replace(/^#/, ""); return; }
     const b = e.target.closest("[data-act]"); if (!b) return;
+    if (b.dataset.act === "old-show") { showOld = !showOld; render(); return; }
+    if (b.dataset.act === "anytime-more") { showAllAnytime = !showAllAnytime; render(); return; }
+    if (b.dataset.act === "old-done") {
+      const g = await gather();
+      if (!g.oldLate.length || !confirm(`Mark ${g.oldLate.length} old overdue item${g.oldLate.length === 1 ? "" : "s"} as done?`)) return;
+      for (const i of g.oldLate) await agenda.complete(i.key);
+      showOld = false; ctx0.toast(`Marked ${g.oldLate.length} done.`); render(); return;
+    }
     if (b.dataset.act === "pin") {
       if (b.closest(".ap-row").classList.contains("done")) return;
       await togglePin(+b.dataset.week, b.dataset.pin); ctx0.toast("Must-do done."); render(); return;

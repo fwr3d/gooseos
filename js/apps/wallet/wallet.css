@@ -76,3 +76,7 @@
 .h-big small{font-size:.45em;font-weight:700;color:var(--muted);margin-left:2px}
 .wl-next{text-decoration:none;color:inherit}
 .wl-next:hover{background:var(--accent-soft)}
+
+/* tap a purchase to edit it */
+.wl-edit{border:0;background:none;text-align:left;padding:0;color:inherit;cursor:pointer;font:inherit}
+.wl-edit:hover .t{text-decoration:underline;text-underline-offset:3px}
