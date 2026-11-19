@@ -3,8 +3,8 @@
 //
 // Saved through the shared store as items of app "milestones":
 //   { title, course, template, due (ms), deadlineKey?, blockedDays: [0-6], steps: [{ id, title, date (ms), estMin, done, kind?, topic?, rating? }], created }
-//   Exam steps carry kind ("gather" | "first" | "quiz" | "practice" | "mistakes" | "cheat" | "night" | "again").
-//   A finished "quiz" step asks Got it / Shaky (rating "good" | "shaky"); Shaky adds an "again" step.
+//   Exam steps carry kind ("study" | "review"). Older plans may have "gather" | "first" | "quiz" | "practice" |
+//   "mistakes" | "cheat" | "night" | "again"; a finished "quiz" step there asks Got it / Shaky (rating "good" | "shaky").
 // Each unfinished step is shared with Reminders and Today through agenda().
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
@@ -192,8 +192,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
       <label>Due<input class="field" type="datetime-local" name="due" required value="${m.due ? toLocalInput(m.due) : ""}"></label>
     </div>
     ${edit ? "" : `<label>Template<div class="ms-tpls">${Object.entries(TEMPLATES).map(([k, t]) => `<button type="button" data-tpl="${k}" aria-pressed="${k === template}">${t.label}</button>`).join("")}</div></label>
-    <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>
-    <label class="ms-check" id="ms-cheat-l" hidden><input type="checkbox" id="ms-cheat"> Cheat sheet allowed</label>`}
+    <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>`}
     <label>Skip these days<div class="ap-days">${DAY_NAMES.map((d, i) => `<button type="button" data-day="${i}" aria-pressed="${blocked.includes(i)}">${d}</button>`).join("")}</div></label>
     ${edit ? `<p class="note" style="margin:0">Changing the due date or skipped days re-plans the unfinished steps.</p>` : `<label>Plan<div class="ms-preview" id="ms-preview"></div></label>`}
     <span class="ap-err" id="ms-err"></span>
@@ -208,7 +207,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
 
   const opts = () => {
     const extra = (f.querySelector("#ms-extra")?.value || "");
-    return template === "exam" ? { topics: extra.split(/[,\n]/), cheatSheet: !!f.querySelector("#ms-cheat")?.checked } : template === "custom" ? { lines: extra.split("\n") } : {};
+    return template === "exam" ? { topics: extra.split(/[,\n]/) } : template === "custom" ? { lines: extra.split("\n") } : {};
   };
   const dueMs = () => f.due.value ? new Date(f.due.value).getTime() : null;
   const preview = () => {
@@ -223,7 +222,6 @@ async function openSheet({ edit, prefill = {} } = {}) {
   const showExtra = () => {
     const l = f.querySelector("#ms-extra-l"); if (!l) return;
     l.hidden = !(template === "exam" || template === "custom");
-    f.querySelector("#ms-cheat-l").hidden = template !== "exam";
     f.querySelector("#ms-extra-h").textContent = template === "exam" ? "Topics on the exam (optional, comma separated)" : "Your steps (one per line)";
     f.querySelector("#ms-extra").placeholder = template === "exam" ? "recursion, linked lists, trees, big-O" : "Email the professor\nFirst draft\nFinal version";
   };
@@ -236,7 +234,6 @@ async function openSheet({ edit, prefill = {} } = {}) {
   });
   f.due.addEventListener("input", preview);
   f.querySelector("#ms-extra")?.addEventListener("input", preview);
-  f.querySelector("#ms-cheat")?.addEventListener("change", preview);
   showExtra(); preview();
 
   f.onsubmit = async e => {
