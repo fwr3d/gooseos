@@ -43,7 +43,7 @@ const EXAMPLES = [
 let root = null, ctx0 = null, ed = null;
 let progs = [], cur = null, data = [];          // data: kept files of the open program
 const fresh = new Map();                         // program id -> Map(name -> { bytes, type })
-let outChars = 0, outCut = false, runT0 = 0, tick = null, saveT = null;
+let outChars = 0, outCut = false, runT0 = 0, tick = null, saveT = null, runId = 0;
 const $ = s => root.querySelector(s);
 
 async function loadProgs() {
@@ -255,13 +255,16 @@ async function runNow() {
   clearOut(false); ed.markLine(0);
   const { list, missing } = await gatherFiles();
   for (const n of missing) note(`${n} isn't on this device yet, so your program can't read it.`, "warn");
+  const id = ++runId;
+  // pressing Run again mid-run restarts Python, so the old run's cleanup must not touch this one
+  const restart = runner.running();
   runT0 = Date.now();
   clearInterval(tick); tick = setInterval(paintStatus, 1000);
   const loading = document.createElement("p"); loading.className = "cd-dim cd-loading";
-  loading.textContent = runner.status().state === "ready" ? "" : "Starting Python… the first run takes a few seconds.";
+  loading.textContent = runner.status().state === "ready" && !restart ? "" : "Starting Python… the first run takes a few seconds.";
   if (loading.textContent) addBlock(loading);
   const p = runner.run({ files: list, main: f.name, stdin: prog.input || "" }, ev => {
-    if (cur !== prog) return;
+    if (cur !== prog || id !== runId) return;
     if (ev.type === "status") { if (loading.isConnected) loading.textContent = ev.text; return; }
     if (ev.type === "started") { loading.remove(); runT0 = Date.now(); paintStatus(); return; }
     loading.remove();
@@ -275,6 +278,7 @@ async function runNow() {
   });
   paintRun(); paintStatus();
   const how = await p;
+  if (id !== runId) return;   // a newer run took over
   clearInterval(tick); paintRun(); paintStatus();
   if (cur !== prog) return;
   loading.remove();

@@ -194,12 +194,20 @@ async function run({ files, main, stdin }) {
   }
   const before = snapshot(WORK);
   const code = files.filter(f => f.text != null && /\.py$/.test(f.name)).map(f => f.text).join("\n");
-  try {
-    await py.loadPackagesFromImports(code, {
-      messageCallback: m => { const x = /^Loading (.+)/.exec(m); if (x) postMessage({ type: "status", text: `Loading ${x[1].split(",").slice(0, 3).join(",")}…` }); },
-      errorCallback: () => {},
-    });
-  } catch (e) { /* a missing package shows up as an import error when the program runs */ }
+  // Packages come from the internet the first time, then from the saved copy.
+  // Offline with a package that was never saved, the download can hang, so give up and say why.
+  let pkgs = "", failed = false;
+  const load = py.loadPackagesFromImports(code, {
+    messageCallback: m => { const x = /^Loading (.+)/.exec(m); if (x) { pkgs = x[1].split(",").slice(0, 3).join(","); postMessage({ type: "status", text: `Loading ${pkgs}…` }); } },
+    errorCallback: () => { failed = true; },
+  }).then(() => "ok", () => "fail");
+  const how = await Promise.race([load, new Promise(r => setTimeout(() => r("slow"), navigator.onLine ? 120000 : 10000))]);
+  if (pkgs && (how !== "ok" || failed) && !navigator.onLine) {
+    post({ type: "error", kind: "Offline", msg: `${pkgs.trim()} ${pkgs.includes(",") ? "aren't" : "isn't"} saved on this device yet. Run this once with internet and it'll work offline after that.`, line: 0, file: "", trace: "" });
+    flush();
+    postMessage({ type: "done", ms: 0, written: [], failed: true });
+    return;
+  }
   postMessage({ type: "started" });
   const t1 = performance.now();
   const names = files.filter(f => /\.py$/.test(f.name)).map(f => f.name);
