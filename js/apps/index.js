@@ -18,13 +18,13 @@ import syllabus from "./syllabus/syllabus.js";
 import schedule from "./schedule/schedule.js";
 import reminders from "./reminders/reminders.js";
 import today from "./today/today.js";
-import events from "./events/events.js";
 import wallet from "./wallet/wallet.js";
 import reset from "./reset/reset.js";
 import grades from "./grades/grades.js";
 import laundry from "./laundry/laundry.js";
 import transfer from "./transfer/transfer.js";
 import pdf from "./pdf/pdf.js";
+import code from "./code/code.js";
 
 export default [
   today,
@@ -40,5 +40,5 @@ export default [
   laundry,
   transfer,
   pdf,
-  events,
+  code,
 ];

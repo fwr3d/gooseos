@@ -1,9 +1,12 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update; installed copies then show
 // "An update is ready" and reload into the new version.
-const VERSION = "v23";
+const VERSION = "v24";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
+// Python for the Code app. Keep this in step with the version in js/apps/code/py-worker.js.
+const PYODIDE_PATH = "/pyodide/v0.29.3/";
+const PYODIDE = "pyodide-v0.29.3";
 
 const FILES = [
   "./",
@@ -42,6 +45,11 @@ const FILES = [
   "js/apps/grades/grades.css",
   "js/apps/laundry/laundry.js",
   "js/apps/laundry/laundry.css",
+  "js/apps/code/code.js",
+  "js/apps/code/code.css",
+  "js/apps/code/editor.js",
+  "js/apps/code/runner.js",
+  "js/apps/code/py-worker.js",
   "js/apps/syllabus/syllabus.js",
   "js/apps/syllabus/syllabus.css",
   "js/apps/syllabus/scan.js",
@@ -52,8 +60,6 @@ const FILES = [
   "js/apps/reminders/reminders.css",
   "js/apps/today/today.js",
   "js/apps/today/today.css",
-  "js/apps/events/events.js",
-  "js/apps/events/events.css",
   "js/apps/index.js",
   "js/apps/whiteboard/whiteboard.js",
   "js/apps/whiteboard/whiteboard.css",
@@ -79,7 +85,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(k => k.startsWith("shell-") && k !== SHELL).map(k => caches.delete(k)));
+    await Promise.all(keys.filter(k => (k.startsWith("shell-") && k !== SHELL) || (k.startsWith("pyodide-") && k !== PYODIDE)).map(k => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -118,6 +124,20 @@ self.addEventListener("fetch", event => {
       const hit = await cache.match(req);
       const fresh = fetch(req).then(res => { if (res.ok || res.type === "opaque") cache.put(req, res.clone()); return res; }).catch(() => hit);
       return hit || fresh;
+    })());
+    return;
+  }
+
+  // Python runtime and packages: these files never change for a given version,
+  // so once one is saved it's used as-is and the Code app works offline.
+  if (url.hostname === "cdn.jsdelivr.net" && url.pathname.startsWith(PYODIDE_PATH)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(PYODIDE);
+      const hit = await cache.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok) cache.put(req, res.clone());
+      return res;
     })());
     return;
   }
