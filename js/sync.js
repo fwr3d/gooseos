@@ -99,6 +99,13 @@ export async function removeFeedToken(token) {
   if (error) throw error;
 }
 
+/** The signed-in person's file storage (js/files.js), or null when signed out. */
+export async function fileBucket() {
+  const c = await getClient(); if (!c) return null;
+  const user = await currentUser().catch(() => null);
+  return user ? { bucket: c.storage.from("files"), folder: user.id } : null;
+}
+
 /** Run one push + pull. Safe to call often; overlapping calls are merged. */
 export async function syncNow() {
   if (!enabled) return;

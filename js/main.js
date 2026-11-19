@@ -6,6 +6,7 @@ import * as sync from "./sync.js";
 import { svg } from "./icons.js";
 import * as capture from "./capture.js";
 import * as feed from "./feed.js";
+import * as files from "./files.js";
 import { renderHome as drawHome, pickerHtml, wirePicker } from "./home.js";
 
 const $ = s => document.querySelector(s);
@@ -237,5 +238,6 @@ sync.onStatus(s => {
 });
 sync.start();
 feed.start();
+files.start();
 let homeT = null;
 store.onChange(() => { if (!current) { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); } });

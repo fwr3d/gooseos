@@ -88,3 +88,26 @@ $$;
 
 revoke all on function public.feed_agenda(text) from public;
 grant execute on function public.feed_agenda(text) to anon, authenticated;
+
+-- Files (Transfer, Milestones attachments, PDF editor). Run this part once.
+-- Each person gets a private folder named after their user id; nobody else can
+-- list, read or change it. 50 MB per file.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('files', 'files', false, 52428800)
+on conflict (id) do update set public = false, file_size_limit = 52428800;
+
+drop policy if exists "own files: read" on storage.objects;
+create policy "own files: read" on storage.objects for select
+  using (bucket_id = 'files' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "own files: add" on storage.objects;
+create policy "own files: add" on storage.objects for insert
+  with check (bucket_id = 'files' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "own files: change" on storage.objects;
+create policy "own files: change" on storage.objects for update
+  using (bucket_id = 'files' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "own files: delete" on storage.objects;
+create policy "own files: delete" on storage.objects for delete
+  using (bucket_id = 'files' and (storage.foldername(name))[1] = auth.uid()::text);

@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update; installed copies then show
 // "An update is ready" and reload into the new version.
-const VERSION = "v22";
+const VERSION = "v23";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 
@@ -21,6 +21,12 @@ const FILES = [
   "js/notify.js",
   "js/feed.js",
   "js/lists.js",
+  "js/files.js",
+  "js/apps/transfer/transfer.js",
+  "js/apps/transfer/transfer.css",
+  "js/apps/pdf/pdf.js",
+  "js/apps/pdf/pdf.css",
+  "js/apps/pdf/makepdf.js",
   "js/apps/deadlines/deadlines.js",
   "js/apps/deadlines/deadlines.css",
   "js/apps/deadlines/parse.js",

@@ -81,6 +81,7 @@ function itemRow(i, now) {
   return `<div class="ap-row" data-key="${esc(i.key)}">
     <button class="ap-check" data-act="done" aria-label="Mark done">${svg("check")}</button>
     <button class="grow td-open" data-act="open"><span class="t">${esc(i.title)}</span><span class="s">${esc(meta)}</span></button>
+    ${i.attach && i.attach.length ? `<button class="td-att" data-file="${esc(i.attach[0].id)}" title="Open ${esc(i.attach[0].name)}">${svg("paperclip")}<span>${esc(i.attach[0].name)}</span>${i.attach.length > 1 ? `<b>+${i.attach.length - 1}</b>` : ""}</button>` : ""}
     ${pill(i, now)}
   </div>`;
 }
@@ -179,6 +180,8 @@ async function mount(el, ctx) {
   el.innerHTML = `<div class="ap-bar"><button class="ap-home" data-home aria-label="Home">${svg("chevronLeft")}Home</button><span class="ap-title">Today</span></div>
     <div class="ap-scroll"><div class="ap-body" id="td-body"></div></div>`;
   el.addEventListener("click", async e => {
+    const fb = e.target.closest("[data-file]");
+    if (fb) { const m = await import("../milestones/milestones.js"); m.openAttachment(fb.dataset.file); return; }
     const lp = e.target.closest("[data-list]");
     if (lp) { setPick(lp.dataset.list); render(); return; }
     const go = e.target.closest("[data-go]");

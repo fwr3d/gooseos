@@ -46,3 +46,8 @@
 .td-old{flex-wrap:wrap;background:color-mix(in srgb,var(--bad) 5%,transparent)}
 .td-old .pill-btn{padding:6px 12px;font-size:13px}
 .td-more{border:0;background:none;width:100%;text-align:left;cursor:pointer;color:inherit;min-height:40px}
+.td-att{display:inline-flex;align-items:center;gap:4px;max-width:150px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:99px;padding:3px 9px;font-size:12px;font-weight:600;cursor:pointer;flex:none}
+.td-att span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-att .ic{width:13px;height:13px;flex:none}
+.td-att:hover{border-color:var(--accent)}
+@media (max-width:480px){.td-att span{display:none}}

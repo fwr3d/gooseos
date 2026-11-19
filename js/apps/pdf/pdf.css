@@ -1,0 +1,38 @@
+/* PDF editor */
+.pf{display:flex;flex-direction:column}
+.pf-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--glass-strong)}
+.pf-tgroup,.pf-colors{display:flex;gap:2px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:3px}
+.pf-tgroup button,.pf-colors button{border:0;background:none;color:var(--ink);width:34px;height:32px;border-radius:9px;display:grid;place-items:center;cursor:pointer}
+.pf-tgroup button .ic{width:18px;height:18px}
+.pf-tgroup button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.pf-colors button i{width:16px;height:16px;border-radius:50%;display:block}
+.pf-colors button[aria-pressed="true"]{background:var(--accent-soft)}
+.pf-colors button[aria-pressed="true"] i{outline:2px solid var(--ink);outline-offset:2px}
+.pf-zoom{display:inline-flex;align-items:center;gap:2px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pf-zoom span{min-width:42px;text-align:center}
+.pf-hint{font-size:12.5px;color:var(--muted)}
+.pf-tools .pill-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px}
+.pf-tools .pill-btn .ic{width:16px;height:16px}
+.pf-main{flex:1;background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.pf-pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:12px;min-width:min-content}
+.pf-page{position:relative;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18),0 6px 20px rgba(0,0,0,.08);flex:none}
+.pf-page canvas{position:absolute;inset:0;width:100%;height:100%}
+.pf-ink{touch-action:none;cursor:crosshair}
+.pf-pages[data-tool="hand"] .pf-ink{touch-action:pan-x pan-y pinch-zoom;cursor:grab}
+.pf-pages[data-tool="text"] .pf-ink{cursor:text}
+.pf-pages[data-tool="eraser"] .pf-ink{cursor:cell}
+.pf-texts{position:absolute;inset:0;pointer-events:none}
+.pf-text{position:absolute;pointer-events:auto;resize:none;overflow:hidden;border:1px dashed transparent;background:transparent;padding:1px 2px;margin:0;line-height:1.25;font-family:Helvetica,Arial,sans-serif;white-space:pre;min-width:40px;outline:none}
+.pf-text:hover,.pf-text:focus{border-color:color-mix(in srgb,var(--accent) 60%,transparent);background:rgba(255,255,255,.7)}
+.pf-pages[data-tool="eraser"] .pf-text{cursor:pointer}
+.pf-num{position:absolute;right:6px;bottom:-20px;font-size:11px;color:var(--muted)}
+.pf-drop{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:26px 18px;border:2px dashed var(--line);cursor:pointer}
+.pf-drop:hover,.pf-drop:focus-visible{border-color:var(--accent);background:var(--accent-soft);outline:none}
+.pf-drop span{color:var(--muted);font-size:13px}
+.pf-drop-ic{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(160deg,#fb7185,#be123c);color:#fff}
+.pf-drop-ic .ic{width:24px;height:24px}
+.pf-item{border:0;background:none;width:100%;text-align:left;color:inherit;cursor:pointer}
+.pf-ic{width:36px;height:36px;flex:none;border-radius:10px;background:var(--accent-soft);display:grid;place-items:center;color:var(--muted)}
+.pf-sheet .pill-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px}
+.pf-sheet .pill-btn .ic{width:17px;height:17px}
+@media (max-width:640px){.pf-hint{display:none}.pf-tools{gap:6px 8px;padding:6px 10px}}

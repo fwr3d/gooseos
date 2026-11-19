@@ -2,13 +2,29 @@
 // into small dated steps between now and the due date.
 //
 // Saved through the shared store as items of app "milestones":
-//   { title, course, template, due (ms), deadlineKey?, blockedDays: [0-6], steps: [{ id, title, date (ms), estMin, done }], created }
+//   { title, course, template, due (ms), deadlineKey?, blockedDays: [0-6], steps: [{ id, title, date (ms), estMin, done, kind?, topic?, rating? }], created }
+//   Exam steps carry kind ("gather" | "first" | "quiz" | "practice" | "mistakes" | "cheat" | "night" | "again").
+//   A finished "quiz" step asks Got it / Shaky (rating "good" | "shaky"); Shaky adds an "again" step.
 // Each unfinished step is shared with Reminders and Today through agenda().
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
 import { dueLabel, toLocalInput } from "../deadlines/parse.js";
 import { knownCourses, courseColor } from "../deadlines/deadlines.js";
-import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan } from "./plan.js";
+import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
+import * as files from "../../files.js";
+
+// Files attach to a milestone (owner "milestones:<id>") or to one step ("milestones:<id>:<step id>").
+// A file named like a rubric goes on the step where you turn the thing in.
+const ownerOf = (mid, sid) => sid ? `${APP}:${mid}:${sid}` : `${APP}:${mid}`;
+function submitStep(m) {
+  const open = [...m.steps].sort((a, b) => a.date - b.date);
+  return open.find(s => /\bsubmit|turn in|citations and submit\b/i.test(s.title)) || (m.template === "exam" ? null : open[open.length - 1]) || null;
+}
+export async function openAttachment(id) {
+  const f = await files.get(id); if (!f) return;
+  if (files.isPdf(f)) { location.hash = `pdf/${encodeURIComponent(id)}`; return; }
+  try { await files.openInTab(id); } catch (e) { if (ctx0) ctx0.toast(files.errorText(e)); }
+}
 
 const APP = "milestones";
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -36,10 +52,13 @@ function guessTemplate(title) {
 /* ---------- shared agenda (Reminders + Today) ---------- */
 export async function agenda() {
   const cutoff = Date.now() - 2 * 864e5, out = [];
+  const att = new Map();
+  for (const f of await files.list({ scope: "milestone" }).catch(() => [])) { const k = f.owner; if (!att.has(k)) att.set(k, []); att.get(k).push({ id: f.id, name: f.name }); }
   for (const m of await loadMilestones()) {
     for (const s of m.steps) {
       if (s.done && s.date < cutoff) continue;
-      out.push({ key: `${APP}:${m.id}:${s.id}`, title: `${s.title} · ${m.title}`, due: s.date, kind: "step", course: m.course || "", done: !!s.done, open: `#${APP}/${m.id}`, estMin: s.estMin || 0 });
+      const attach = att.get(ownerOf(m.id, s.id));
+      out.push({ key: `${APP}:${m.id}:${s.id}`, title: `${s.title} · ${m.title}`, due: s.date, kind: "step", course: m.course || "", done: !!s.done, open: `#${APP}/${m.id}`, estMin: s.estMin || 0, ...(attach ? { attach } : {}) });
     }
   }
   return out;
@@ -88,6 +107,9 @@ async function renderDetail(id) {
   $("#ms-back").hidden = false; root.querySelector("[data-home]").hidden = true;
   const p = progress(m), now = Date.now();
   const linked = m.deadlineKey ? await store.get("deadlines", m.deadlineKey.replace(/^deadlines:/, "")) : null;
+  const att = await files.list({ owner: ownerOf(id) }).catch(() => []);
+  const onStep = sid => att.filter(f => f.owner === ownerOf(id, sid));
+  const chip = f => `<button class="ms-att" data-act="file" data-fid="${esc(f.id)}" title="Open ${esc(f.name)}">${svg("paperclip")}${esc(f.name)}</button>`;
   $("#ms-main").innerHTML = `
     <div class="ms-head">
       <h1>${esc(m.title)}</h1>
@@ -100,18 +122,52 @@ async function renderDetail(id) {
       </div>
     </div>
     <div class="ap-card" id="ms-steps">
-      ${m.steps.map(s => {
+      ${[...m.steps].sort((a, b) => a.date - b.date).map(s => {
         const late = !s.done && s.date < now;
-        return `<div class="ap-row ms-step ${s.done ? "done" : ""}" data-sid="${s.id}">
+        const ask = s.kind === "quiz" && s.done && !s.rating;
+        const rated = s.rating ? `<span class="ap-pill ${s.rating === "good" ? "good" : "warn"}">${s.rating === "good" ? "Got it" : "Shaky"}</span>` : "";
+        return `<div class="ap-row ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""}" data-sid="${s.id}">
           <button class="ap-check" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
-          <div class="grow"><span class="t">${esc(s.title)}</span><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:500;color:${late ? "var(--bad)" : "var(--muted)"};font-size:12.5px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button></div>
+          <div class="grow"><span class="t">${esc(s.title)}</span><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:500;color:${late ? "var(--bad)" : "var(--muted)"};font-size:12.5px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button>
+            ${onStep(s.id).length ? `<span class="ms-atts">${onStep(s.id).map(chip).join("")}</span>` : ""}
+            ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
+          ${rated}
           <span class="est">${fmtDur(s.estMin || 45)}</span>
           <button class="icon-btn ms-del" data-act="rmstep" aria-label="Remove step">${svg("x")}</button>
         </div>`;
       }).join("")}
       <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="pill-btn" type="submit">Add</button></form>
     </div>
-    <p class="ap-hint">Tap a step's date to move it. Re-plan spreads the unfinished steps from today to the due date and never past it.</p>`;
+    <p class="ap-hint">Tap a step's date to move it. Re-plan spreads the unfinished steps from today to the due date and never past it.</p>
+
+    <section class="ap-sec" id="ms-files"><h3>Files<span class="n">${att.length}</span></h3>
+      <div class="ap-card">
+        ${att.map(f => `<div class="ap-row ms-frow" data-fid="${esc(f.id)}">
+          <span class="ms-fic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
+          <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), f.uploaded ? "" : "uploading…"].filter(Boolean).join(" · "))}</span></button>
+          <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
+            <option value="">Whole project</option>
+            ${[...m.steps].sort((a, b) => a.date - b.date).map(s => `<option value="${esc(s.id)}" ${f.owner === ownerOf(id, s.id) ? "selected" : ""}>Step: ${esc(s.title)}</option>`).join("")}
+          </select>
+          <button class="icon-btn" data-act="fdel" aria-label="Remove ${esc(f.name)}">${svg("x")}</button>
+        </div>`).join("")}
+        <label class="ap-row ms-fadd" tabindex="0">${svg("paperclip")}<span class="grow"><span class="t">Attach a file</span><span class="s">Spec, rubric, starter code, drafts. A rubric goes on the submit step by itself.</span></span><input type="file" id="ms-fpick" multiple hidden></label>
+      </div>
+    </section>`;
+  $("#ms-fpick").onchange = async e => {
+    const list = [...e.target.files]; e.target.value = "";
+    for (const file of list) {
+      const sub = /rubric/i.test(file.name) ? submitStep(m) : null;
+      try {
+        await files.add(file, { scope: "milestone", owner: ownerOf(id, sub && sub.id) });
+        ctx0.toast(sub ? `Attached ${file.name} to “${sub.title}”.` : `Attached ${file.name}.`);
+      } catch (err) { ctx0.toast(`${file.name}: ${files.errorText(err)}`); }
+    }
+    renderDetail(id);
+  };
+  root.querySelectorAll('[data-act="fstep"]').forEach(sel => sel.onchange = async () => {
+    await files.update(sel.closest("[data-fid]").dataset.fid, { owner: ownerOf(id, sel.value) }); renderDetail(id);
+  });
 }
 
 async function update(id, fn) {
@@ -136,7 +192,8 @@ async function openSheet({ edit, prefill = {} } = {}) {
       <label>Due<input class="field" type="datetime-local" name="due" required value="${m.due ? toLocalInput(m.due) : ""}"></label>
     </div>
     ${edit ? "" : `<label>Template<div class="ms-tpls">${Object.entries(TEMPLATES).map(([k, t]) => `<button type="button" data-tpl="${k}" aria-pressed="${k === template}">${t.label}</button>`).join("")}</div></label>
-    <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>`}
+    <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>
+    <label class="ms-check" id="ms-cheat-l" hidden><input type="checkbox" id="ms-cheat"> Cheat sheet allowed</label>`}
     <label>Skip these days<div class="ap-days">${DAY_NAMES.map((d, i) => `<button type="button" data-day="${i}" aria-pressed="${blocked.includes(i)}">${d}</button>`).join("")}</div></label>
     ${edit ? `<p class="note" style="margin:0">Changing the due date or skipped days re-plans the unfinished steps.</p>` : `<label>Plan<div class="ms-preview" id="ms-preview"></div></label>`}
     <span class="ap-err" id="ms-err"></span>
@@ -151,7 +208,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
 
   const opts = () => {
     const extra = (f.querySelector("#ms-extra")?.value || "");
-    return template === "exam" ? { topics: extra.split(/[,\n]/) } : template === "custom" ? { lines: extra.split("\n") } : {};
+    return template === "exam" ? { topics: extra.split(/[,\n]/), cheatSheet: !!f.querySelector("#ms-cheat")?.checked } : template === "custom" ? { lines: extra.split("\n") } : {};
   };
   const dueMs = () => f.due.value ? new Date(f.due.value).getTime() : null;
   const preview = () => {
@@ -161,12 +218,13 @@ async function openSheet({ edit, prefill = {} } = {}) {
     if (due < Date.now()) { box.innerHTML = `<div>That due date has already passed.</div>`; return; }
     const steps = buildPlan(template, Date.now(), due, blocked, opts());
     box.innerHTML = steps.length ? steps.map(s => `<div><span>${esc(dueLabel(s.date))}</span>${esc(s.title)}</div>`).join("")
-      : `<div>${template === "exam" ? "List the topics above, separated by commas." : "Write your steps above, one per line."}</div>`;
+      : `<div>Write your steps above, one per line.</div>`;
   };
   const showExtra = () => {
     const l = f.querySelector("#ms-extra-l"); if (!l) return;
     l.hidden = !(template === "exam" || template === "custom");
-    f.querySelector("#ms-extra-h").textContent = template === "exam" ? "Topics to review (comma separated)" : "Your steps (one per line)";
+    f.querySelector("#ms-cheat-l").hidden = template !== "exam";
+    f.querySelector("#ms-extra-h").textContent = template === "exam" ? "Topics on the exam (optional, comma separated)" : "Your steps (one per line)";
     f.querySelector("#ms-extra").placeholder = template === "exam" ? "recursion, linked lists, trees, big-O" : "Email the professor\nFirst draft\nFinal version";
   };
   f.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => {
@@ -178,6 +236,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
   });
   f.due.addEventListener("input", preview);
   f.querySelector("#ms-extra")?.addEventListener("input", preview);
+  f.querySelector("#ms-cheat")?.addEventListener("change", preview);
   showExtra(); preview();
 
   f.onsubmit = async e => {
@@ -193,7 +252,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
     }
     if (due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
     const steps = buildPlan(template, Date.now(), due, blocked, opts());
-    if (!steps.length) { err.textContent = template === "exam" ? "Add at least one topic." : "Add at least one step."; return; }
+    if (!steps.length) { err.textContent = "Add at least one step."; return; }
     const id = "m-" + uid();
     await save({ id, title, course, due, template, blockedDays: blocked, steps, deadlineKey: m.deadlineKey || "", created: Date.now() });
     close();
@@ -241,10 +300,27 @@ async function mount(el, ctx) {
     if (act === "new") return openSheet();
     if (!current) return;
     const id = current;
+    if (act === "file") { openAttachment(e.target.closest("[data-fid]").dataset.fid); return; }
+    if (act === "fdel") {
+      const fid = e.target.closest("[data-fid]").dataset.fid, f = await files.get(fid);
+      if (f && confirm(`Remove ${f.name}? It's deleted from all your devices.`)) { await files.remove(fid); renderDetail(id); }
+      return;
+    }
+    if (act === "fstep") return;
     const sid = e.target.closest("[data-sid]")?.dataset.sid;
     if (act === "toggle") {
       const m = await update(id, m => ({ ...m, steps: m.steps.map(s => s.id === sid ? { ...s, done: !s.done } : s) }));
       if (m && !m.steps.some(s => !s.done)) ctx0.toast(`All steps done for “${m.title}”. Nice work.`);
+      renderDetail(id);
+    } else if (act === "rate-good" || act === "rate-shaky") {
+      const shaky = act === "rate-shaky";
+      const m = await update(id, m => {
+        const s = m.steps.find(x => x.id === sid); if (!s) return m;
+        const steps = m.steps.map(x => x.id === sid ? { ...x, rating: shaky ? "shaky" : "good" } : x);
+        if (shaky) steps.push({ id: "s" + uid(), title: `Review again: ${s.topic || s.title.replace(/^Quiz yourself:\s*/, "")}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin: 45, done: false, kind: "again", topic: s.topic });
+        return { ...m, steps };
+      });
+      if (shaky && m) { const a = m.steps[m.steps.length - 1]; ctx0.toast(`Added “${a.title}” for ${dueLabel(a.date)}.`); }
       renderDetail(id);
     } else if (act === "rmstep") {
       await update(id, m => ({ ...m, steps: m.steps.filter(s => s.id !== sid) })); renderDetail(id);
@@ -263,7 +339,9 @@ async function mount(el, ctx) {
       const wrap = $("#ms-del-wrap"), raw = await store.get(APP, id);
       wrap.innerHTML = `<span class="confirm">Delete “${esc(raw.title)}” and its steps? <button class="pill-btn danger" data-act="del-yes">Delete</button><button class="pill-btn secondary" data-act="del-no">Cancel</button></span>`;
     } else if (act === "del-yes") {
-      const raw = await store.get(APP, id); await store.remove(APP, id); ctx0.toast(`Deleted “${raw ? raw.title : "milestone"}”`); go("");
+      const raw = await store.get(APP, id); await store.remove(APP, id);
+      for (const f of await files.list({ owner: ownerOf(id) }).catch(() => [])) await files.remove(f.id);
+      ctx0.toast(`Deleted “${raw ? raw.title : "milestone"}”`); go("");
     } else if (act === "del-no") renderDetail(id);
   });
   $("#ms-main").addEventListener("submit", async e => {

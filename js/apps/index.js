@@ -23,6 +23,8 @@ import wallet from "./wallet/wallet.js";
 import reset from "./reset/reset.js";
 import grades from "./grades/grades.js";
 import laundry from "./laundry/laundry.js";
+import transfer from "./transfer/transfer.js";
+import pdf from "./pdf/pdf.js";
 
 export default [
   today,
@@ -36,5 +38,7 @@ export default [
   reset,
   grades,
   laundry,
+  transfer,
+  pdf,
   events,
 ];

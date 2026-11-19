@@ -43,3 +43,24 @@ button.ms-card:hover{background:var(--accent-soft)}
 .ms-next .ap-hint{white-space:nowrap;flex:none}
 .ms-next b{min-width:0;flex:0 1 auto}
 @media (max-width:480px){.ms-sheet .two{grid-template-columns:1fr}}
+
+/* exams: cheat sheet option, Got it / Shaky */
+.ms-sheet label.ms-check{flex-direction:row;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:14px;font-weight:500;color:var(--ink)}
+.ms-check input{width:18px;height:18px;accent-color:var(--accent-strong)}
+.ms-rate{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:13px;color:var(--ink)}
+.ms-rate .pill-btn{padding:5px 12px;font-size:13px}
+.ms-step.ask{background:var(--accent-soft)}
+.ms-step.done.ask .t{text-decoration:none}
+
+/* files */
+.ms-atts{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.ms-att{display:inline-flex;align-items:center;gap:4px;max-width:100%;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:99px;padding:3px 9px;font-size:12px;font-weight:600;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-att .ic{width:13px;height:13px;flex:none}
+.ms-att:hover{border-color:var(--accent)}
+.ms-fic{width:34px;height:34px;flex:none;border-radius:10px;background:var(--accent-soft);display:grid;place-items:center;color:var(--muted)}
+.ms-fopen{border:0;background:none;text-align:left;padding:0;color:inherit;cursor:pointer;min-width:0}
+.ms-fopen .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-fstep{width:auto;max-width:170px;padding:6px 8px;font-size:13px}
+.ms-fadd{cursor:pointer;color:var(--accent-strong)}
+.ms-fadd .s{color:var(--muted)}
+@media (max-width:560px){.ms-frow{flex-wrap:wrap}.ms-fstep{max-width:none;flex:1 1 100%;order:5}}
