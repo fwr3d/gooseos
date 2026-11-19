@@ -147,9 +147,37 @@ class _BackendGoose(_BackendAgg):
         sys.modules["_gooseos_harness"]._show_figs()
 `;
 
+// Download progress: count the bytes of Python's own files and packages as they arrive.
+// From the saved copy this is over in a blink; the first time it can be 20 MB or more.
+let dl = null;   // { what, done, total, at }
+const mb = n => (n / 1e6).toFixed(n < 1e7 ? 1 : 0);
+function dlReport(force) {
+  if (!dl || dl.total < 1.5e6) return;
+  const now = performance.now(); if (!force && now - dl.at < 150) return; dl.at = now;
+  postMessage({ type: "status", text: `Getting ${dl.what}… ${mb(Math.min(dl.done, dl.total))} of ${mb(dl.total)} MB` });
+}
+const netFetch = globalThis.fetch.bind(globalThis);
+globalThis.fetch = async (input, init) => {
+  const res = await netFetch(input, init);
+  const size = +res.headers.get("content-length") || 0;
+  if (!dl || !res.ok || !res.body || !size) return res;
+  dl.total += size;
+  const reader = res.body.getReader();
+  const body = new ReadableStream({
+    async pull(c) {
+      const { done, value } = await reader.read();
+      if (done) { c.close(); return; }
+      dl.done += value.length; dlReport(); c.enqueue(value);
+    },
+    cancel(why) { reader.cancel(why); },
+  });
+  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+};
+
 async function boot() {
   postMessage({ type: "status", text: "Starting Python…" });
-  py = await loadPyodide();
+  dl = { what: "Python", done: 0, total: 0, at: 0 };
+  try { py = await loadPyodide(); } finally { dl = null; }
   py.setStdout({ write: b => { write(dec.decode(b, { stream: true }), false); return b.length; } });
   py.setStderr({ write: b => { write(decErr.decode(b, { stream: true }), true); return b.length; } });
   py.registerJsModule("_gooseos", {
@@ -197,11 +225,21 @@ async function run({ files, main, stdin }) {
   // Packages come from the internet the first time, then from the saved copy.
   // Offline with a package that was never saved, the download can hang, so give up and say why.
   let pkgs = "", failed = false;
+  const BIG = ["pandas", "matplotlib", "scipy", "scikit-learn", "sympy", "numpy"];
+  dl = { what: "packages", done: 0, total: 0, at: 0 };
   const load = py.loadPackagesFromImports(code, {
-    messageCallback: m => { const x = /^Loading (.+)/.exec(m); if (x) { pkgs = x[1].split(",").slice(0, 3).join(","); postMessage({ type: "status", text: `Loading ${pkgs}…` }); } },
+    messageCallback: m => {
+      const x = /^Loading (.+)/.exec(m); if (!x) return;
+      const names = x[1].split(",").map(s => s.trim());
+      pkgs = names.slice(0, 3).join(", ");
+      const main = BIG.find(b => names.includes(b));
+      if (main && (dl.what === "packages" || BIG.indexOf(main) < BIG.indexOf(dl.what))) dl.what = main;
+      postMessage({ type: "status", text: `Loading ${pkgs}…` });
+    },
     errorCallback: () => { failed = true; },
   }).then(() => "ok", () => "fail");
   const how = await Promise.race([load, new Promise(r => setTimeout(() => r("slow"), navigator.onLine ? 120000 : 10000))]);
+  dl = null;
   if (pkgs && (how !== "ok" || failed) && !navigator.onLine) {
     post({ type: "error", kind: "Offline", msg: `${pkgs.trim()} ${pkgs.includes(",") ? "aren't" : "isn't"} saved on this device yet. Run this once with internet and it'll work offline after that.`, line: 0, file: "", trace: "" });
     flush();

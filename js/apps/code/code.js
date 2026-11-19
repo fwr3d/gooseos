@@ -43,7 +43,7 @@ const EXAMPLES = [
 let root = null, ctx0 = null, ed = null;
 let progs = [], cur = null, data = [];          // data: kept files of the open program
 const fresh = new Map();                         // program id -> Map(name -> { bytes, type })
-let outChars = 0, outCut = false, runT0 = 0, tick = null, saveT = null, runId = 0;
+let outChars = 0, outCut = false, runT0 = 0, tick = null, saveT = null, runId = 0, printed = "";
 const $ = s => root.querySelector(s);
 
 async function loadProgs() {
@@ -100,6 +100,7 @@ async function render() {
         <div class="cd-tabs" id="cd-tabs" role="tablist" aria-label="Programs"></div>
         <span class="ap-spacer"></span>
         <button class="icon-btn cd-stop" id="cd-stop" aria-label="Stop" title="Stop">${svg("square")}</button>
+        <button class="pill-btn secondary cd-testb" id="cd-tests" title="Tests: check the output for given input">${svg("listChecks")}<span>Tests</span><small id="cd-tn"></small></button>
         <button class="pill-btn cd-run" id="cd-run" title="Run (Ctrl+Enter)">${svg("play")}<span>Run</span></button>
       </div>
       <div class="cd-main">
@@ -120,6 +121,7 @@ async function render() {
       onRun: runNow,
     });
     $("#cd-run").onclick = runNow;
+    $("#cd-tests").onclick = () => testsSheet();
     $("#cd-stop").onclick = () => runner.stop("stopped");
     $("#cd-input").oninput = e => { cur.input = e.target.value; save(); };
     $("#cd-keys").addEventListener("pointerdown", e => { const b = e.target.closest("[data-k]"); if (!b) return; e.preventDefault(); ed.type(b.dataset.k); });
@@ -171,7 +173,8 @@ function paintFiles() {
 }
 
 function paintRun() {
-  const on = runner.running();
+  const on = runner.running(), n = (cur && cur.tests || []).length;
+  $("#cd-tn").textContent = n ? String(n) : "";
   $("#cd-run").classList.toggle("busy", on);
   $("#cd-stop").disabled = !on;
 }
@@ -263,9 +266,13 @@ async function runNow() {
   const loading = document.createElement("p"); loading.className = "cd-dim cd-loading";
   loading.textContent = runner.status().state === "ready" && !restart ? "" : "Starting Python… the first run takes a few seconds.";
   if (loading.textContent) addBlock(loading);
+  printed = ""; let failed = false;
   const p = runner.run({ files: list, main: f.name, stdin: prog.input || "" }, ev => {
     if (cur !== prog || id !== runId) return;
-    if (ev.type === "status") { if (loading.isConnected) loading.textContent = ev.text; return; }
+    if (ev.type === "out" && !ev.err) printed += ev.text;
+    if (ev.type === "error") failed = true;
+    if (ev.type === "done") ev.ok = !failed;
+    if (ev.type === "status") { if (!loading.isConnected && !outEl().children.length) addBlock(loading); loading.textContent = ev.text; return; }
     if (ev.type === "started") { loading.remove(); runT0 = Date.now(); paintStatus(); return; }
     loading.remove();
     if (ev.type === "out") addText(ev.text, ev.err);
@@ -286,10 +293,47 @@ async function runNow() {
   else if (how === "stopped") { note("Stopped."); $("#cd-time").textContent = "stopped"; }
 }
 
+// What an error usually means, in plain words. The first pattern that matches wins.
+const q = s => `"${s}"`;
+const a = s => (/^[aeiou]/i.test(s) ? "an " : "a ") + s;
+const HELP = [
+  [/NameError/, /name '(.+?)' is not defined/, m => `Python doesn't know ${q(m[1])}. Check the spelling and capitals, and make sure it's set (or imported) before this line.`],
+  [/UnboundLocalError/, /'(.+?)'/, m => `${q(m[1])} is used inside the function before it gets a value there. To change an outside variable, pass it in or return the new value.`],
+  [/TypeError/, /can only concatenate str \(not "(.+?)"\) to str/, m => `You're joining text with ${a(m[1])}. Wrap it in str(), or use an f-string like f"Total: {x}".`],
+  [/TypeError/, /unsupported operand type\(s\) for (.+?): '(.+?)' and '(.+?)'/, m => `${q(m[1])} doesn't work between ${a(m[2])} and ${a(m[3])}.${/str/.test(m[2] + m[3]) ? " input() always gives text, so convert it with int() or float() first." : ""}`],
+  [/TypeError/, /'(.+?)' object is not subscriptable/, m => `You used [ ] on ${a(m[1])}, which can't be indexed. Only things like lists, strings and dicts can.`],
+  [/TypeError/, /'(.+?)' object is not callable/, m => `You used ( ) on ${a(m[1])} as if it were a function. Did a variable reuse a function's name (like list or sum)?`],
+  [/TypeError/, /'(.+?)' object is not iterable/, m => `A for loop (or list()) needs something with items, but got ${a(m[1])}. For counting, use range(n).`],
+  [/TypeError/, /missing (\d+) required positional argument/, m => `The function needs ${m[1]} more value${m[1] === "1" ? "" : "s"} than you gave it. Compare the call with its def line.`],
+  [/TypeError/, /takes (\d+) positional arguments? but (\d+) (?:was|were) given/, m => `The function takes ${m[1]} value${m[1] === "1" ? "" : "s"} but got ${m[2]}.${+m[2] === +m[1] + 1 ? " Methods inside a class need self as their first parameter." : ""}`],
+  [/ValueError/, /invalid literal for int\(\) with base 10: '(.*?)'/, m => m[1] === "" ? "int() got an empty line. Is the Input box missing a line?" : /^-?\d+\.\d*$/.test(m[1]) ? `int() can't read ${q(m[1])} because it has a decimal point. Use float() instead.` : `int() can't turn ${q(m[1])} into a whole number. Check the Input box or what you're converting.`],
+  [/ValueError/, /could not convert string to float: '(.*?)'/, m => `float() can't turn ${q(m[1])} into a number.`],
+  [/ValueError/, /too many values to unpack|not enough values to unpack/, () => "The number of names on the left doesn't match how many values are on the right."],
+  [/IndexError/, /list index out of range/, () => "That position is past the end of the list. Positions start at 0, so the last one is len(list) - 1."],
+  [/IndexError/, /string index out of range/, () => "That position is past the end of the text. Positions start at 0, so the last one is len(s) - 1."],
+  [/KeyError/, /^'?(.+?)'?$/, m => `There's no key ${q(m[1])}. Check the spelling and capitals. With pandas, check the column names with df.columns.`],
+  [/ZeroDivisionError/, /./, () => "Something was divided by zero. Check the value before dividing, for example if count > 0."],
+  [/RecursionError/, /./, () => "A function kept calling itself and never stopped. Make sure there's a base case that returns without calling again."],
+  [/IndentationError|TabError/, /expected an indented block/, () => "The line after one ending in : needs to be indented (4 spaces)."],
+  [/IndentationError|TabError/, /unindent does not match|unexpected indent|inconsistent/, () => "The spaces at the start of this line don't line up with the lines around it."],
+  [/SyntaxError/, /expected ':'/, () => "This line needs a : at the end (if, for, while, def and class lines all do)."],
+  [/SyntaxError/, /'(.)' was never closed/, m => `A ${q(m[1])} is opened here but never closed.`],
+  [/SyntaxError/, /unterminated string/, () => "A string is missing its closing quote."],
+  [/SyntaxError/, /invalid syntax\. Maybe you meant '==' or ':='/, () => "Use == to compare. A single = stores a value."],
+  [/SyntaxError/, /Missing parentheses in call to 'print'/, () => "In Python 3, print needs parentheses: print(\"hi\")."],
+  [/AttributeError/, /'(.+?)' object has no attribute '(.+?)'/, m => `${a(m[1]).replace(/^a/, "A")} doesn't have ${q(m[2])}. Check the spelling, or whether the value is the type you think it is.${m[1] === "NoneType" ? " Something returned None here. Did a function forget to return?" : ""}`],
+  [/FileNotFoundError/, /'(.+?)'/, m => `There's no file named ${q(m[1])}. Add it in the Files panel; the name has to match exactly, capitals too.`],
+];
+function explain(kind, msg) {
+  for (const [k, re, f] of HELP) { if (!k.test(kind)) continue; const m = re.exec(msg || ""); if (m) return f(m); }
+  return "";
+}
+
 function showError(ev, ran) {
   const b = document.createElement("div"); b.className = "cd-err";
   const where = ev.line ? `Line ${ev.line}${ev.file && ev.file !== ran ? ` of ${ev.file}` : ""}: ` : "";
-  b.innerHTML = `<div class="cd-err-m">${esc(where)}<b>${esc(ev.kind)}</b>: ${esc(ev.msg)}</div>${ev.trace ? `<details><summary>Full error</summary><pre>${esc(ev.trace)}</pre></details>` : ""}`;
+  const help = explain(ev.kind, ev.msg);
+  b.innerHTML = `<div class="cd-err-m">${esc(where)}<b>${esc(ev.kind)}</b>: ${esc(ev.msg)}</div>${help ? `<p class="cd-err-h">${esc(help)}</p>` : ""}${ev.trace ? `<details><summary>Full error</summary><pre>${esc(ev.trace)}</pre></details>` : ""}`;
   addBlock(b);
   if (ev.line) {
     if (ev.file && ev.file !== activeFile().name && cur.files.some(x => x.name === ev.file)) { cur.active = ev.file; ed.set(activeFile().text); paintFiles(); }
@@ -313,6 +357,110 @@ function finished(prog, ev) {
     addBlock(b);
     paintFiles();
   }
+  // a run that printed the right thing can become a test in one tap
+  if (ev.ok && printed.trim() && !outCut) {
+    const input = prog.input || "", expected = printed;
+    const b = document.createElement("div"); b.className = "cd-wrote";
+    b.innerHTML = `<button class="link-btn" type="button">${svg("listChecks")}Save this run as a test</button>`;
+    b.querySelector("button").onclick = async () => {
+      prog.tests = [...(prog.tests || []), { input, expected }];
+      if (cur === prog) { await save(true); paintRun(); }
+      b.innerHTML = `<span class="cd-dim">Saved as test ${prog.tests.length}.</span>`;
+    };
+    addBlock(b);
+  }
+}
+
+/* ---------- tests ---------- */
+// A test is { input, expected }: run with that Input, compare what it prints.
+// Spaces at line ends and blank lines at the very end don't count.
+const norm = s => String(s || "").replace(/\r/g, "").split("\n").map(l => l.trimEnd()).join("\n").replace(/\n+$/, "");
+
+function testsSheet() {
+  if (!cur) return;
+  let list = (cur.tests || []).map(t => ({ ...t }));
+  if (!list.length) list.push({ input: cur.input || "", expected: "" });
+  const { f, close } = sheet(`<h2>Tests</h2>
+    <p class="note">Each test runs your program with its input and checks the printed output. Spaces at the end of lines don't count.</p>
+    <div class="cd-tcases" id="cd-tcases"></div>
+    <button type="button" class="link-btn cd-tadd" id="cd-tadd">${svg("plus")}Add a test</button>
+    <div class="acts"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button type="button" class="pill-btn secondary" id="cd-tsave">Save</button><button class="pill-btn">Run tests</button></div>`);
+  const box = f.querySelector("#cd-tcases");
+  const paint = () => {
+    box.innerHTML = list.map((t, i) => `<div class="cd-tcase">
+      <div class="cd-tch"><b>Test ${i + 1}</b><button type="button" class="icon-btn" data-del="${i}" aria-label="Delete test ${i + 1}">${svg("x")}</button></div>
+      <div class="cd-tcg"><label>Input<textarea class="field cd-input" rows="3" data-in="${i}" wrap="off" spellcheck="false" autocapitalize="off" placeholder="One line per input()">${esc(t.input)}</textarea></label>
+      <label>Expected output<textarea class="field cd-input" rows="3" data-ex="${i}" wrap="off" spellcheck="false" autocapitalize="off" placeholder="What it should print">${esc(t.expected)}</textarea></label></div></div>`).join("")
+      || `<p class="cd-dim">No tests yet.</p>`;
+    box.querySelectorAll("[data-in]").forEach(a => a.oninput = () => { list[+a.dataset.in].input = a.value; });
+    box.querySelectorAll("[data-ex]").forEach(a => a.oninput = () => { list[+a.dataset.ex].expected = a.value; });
+    box.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { list.splice(+b.dataset.del, 1); paint(); });
+  };
+  paint();
+  f.querySelector("#cd-tadd").onclick = () => { list.push({ input: "", expected: "" }); paint(); box.lastElementChild?.querySelector("textarea")?.focus(); };
+  const keep = async () => { cur.tests = list.filter(t => t.input.trim() || t.expected.trim()); await save(true); paintRun(); };
+  f.querySelector("#cd-tsave").onclick = async () => { await keep(); close(); ctx0.toast(cur.tests.length ? `Saved ${cur.tests.length} test${cur.tests.length === 1 ? "" : "s"}` : "No tests saved"); };
+  f.onsubmit = async e => {
+    e.preventDefault(); await keep();
+    if (!cur.tests.length) { ctx0.toast("Add the output a test should expect"); return; }
+    close(); runTests();
+  };
+}
+
+function caseEl(i, t, got, err, how) {
+  const b = document.createElement("div"); b.className = "cd-case fail";
+  const title = `<div class="cd-case-h">${svg("x")}<b>Test ${i + 1}</b>`;
+  const inp = t.input.trim() ? `<span class="cd-dim">input: ${esc(t.input.trim().split("\n").join(" ⏎ ").slice(0, 80))}</span>` : "";
+  if (err) {
+    const help = explain(err.kind, err.msg);
+    b.innerHTML = `${title}<span>crashed</span>${inp}</div><div class="cd-err-m">${err.line ? `Line ${err.line}: ` : ""}<b>${esc(err.kind)}</b>: ${esc(err.msg)}</div>${help ? `<p class="cd-err-h">${esc(help)}</p>` : ""}`;
+    return b;
+  }
+  if (how === "timeout") { b.innerHTML = `${title}<span>took over a minute</span>${inp}</div>`; return b; }
+  const want = norm(t.expected).split("\n"), have = norm(got).split("\n");
+  let k = 0; while (k < want.length && k < have.length && want[k] === have[k]) k++;
+  const col = (lines, label) => `<div><div class="cd-dim">${label}</div><pre class="cd-txt">${lines.slice(0, 60).map((l, j) => j === k ? `<mark>${esc(l) || " "}</mark>` : esc(l)).join("\n")}${lines.length > 60 ? "\n…" : ""}</pre></div>`;
+  const why = k >= have.length ? `stops early at line ${k + 1}` : k >= want.length ? `prints extra lines from line ${k + 1}` : `line ${k + 1} is different`;
+  b.innerHTML = `${title}<span>${why}</span>${inp}</div><div class="cd-diff">${col(want, "Expected")}${col(have, "Got")}</div>`;
+  return b;
+}
+
+async function runTests() {
+  if (!cur || !(cur.tests || []).length) return;
+  const prog = cur, f = activeFile(), tests = prog.tests, id = ++runId;
+  await save(true);
+  clearOut(false); ed.markLine(0);
+  const { list, missing } = await gatherFiles();
+  for (const n of missing) note(`${n} isn't on this device yet, so your program can't read it.`, "warn");
+  runT0 = Date.now();
+  clearInterval(tick); tick = setInterval(paintStatus, 1000);
+  const head = document.createElement("p"); head.className = "cd-tsum"; addBlock(head);
+  let pass = 0, ran = 0;
+  for (let i = 0; i < tests.length; i++) {
+    const t = tests[i]; let got = "", err = null;
+    head.textContent = `Running test ${i + 1} of ${tests.length}…`;
+    const p = runner.run({ files: list, main: f.name, stdin: t.input || "" }, ev => {
+      if (id !== runId) return;
+      if (ev.type === "status") head.textContent = `Test ${i + 1} of ${tests.length}: ${ev.text}`;
+      else if (ev.type === "out" && !ev.err) got += ev.text;
+      else if (ev.type === "error" && !err) err = ev;
+    });
+    paintRun();
+    const how = await p;
+    if (id !== runId || cur !== prog) return;
+    if (how === "stopped") { note("Stopped."); break; }
+    ran++;
+    if (!err && how === "done" && norm(got) === norm(t.expected)) {
+      pass++;
+      const b = document.createElement("div"); b.className = "cd-case pass";
+      b.innerHTML = `<div class="cd-case-h">${svg("check")}<b>Test ${i + 1}</b><span>passed</span></div>`;
+      addBlock(b);
+    } else addBlock(caseEl(i, t, got, err, how));
+  }
+  clearInterval(tick); paintRun(); paintStatus();
+  head.textContent = pass === tests.length ? `All ${tests.length} test${tests.length === 1 ? "" : "s"} passed` : `${pass} of ${tests.length} tests passed`;
+  head.classList.add(pass === tests.length ? "good" : "bad");
+  $("#cd-time").textContent = ran < tests.length ? "stopped" : `${pass}/${tests.length} passed`;
 }
 
 /* ---------- files ---------- */
@@ -444,7 +592,7 @@ function progMenu() {
     { icon: "copy", label: "Duplicate", run: async () => {
       await save(true);
       const id = "p-" + uid(), now = Date.now(), base = main.name.replace(/\.py$/i, "");
-      await store.put(APP, id, { files: cur.files.map((f, i) => ({ name: i ? f.name : `${base}_copy.py`, text: f.text })), active: cur.active === main.name ? `${base}_copy.py` : cur.active, input: cur.input || "", created: now, updated: now });
+      await store.put(APP, id, { files: cur.files.map((f, i) => ({ name: i ? f.name : `${base}_copy.py`, text: f.text })), active: cur.active === main.name ? `${base}_copy.py` : cur.active, input: cur.input || "", tests: (cur.tests || []).map(t => ({ ...t })), created: now, updated: now });
       cur = { id }; setRoute(); clearOut(); render();
     } },
     { icon: "x", label: "Delete program", danger: true, run: () => confirmSheet(`Delete ${main.name}?`, `This deletes its code${data.length ? ` and ${data.length} data file${data.length === 1 ? "" : "s"}` : ""} on all your devices. It can't be undone.`, "Delete", async () => {

@@ -150,3 +150,38 @@
 .cd-pair{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;align-items:start}
 .cd-pair .cd-img{max-height:260px;width:100%;object-fit:contain}
 @media (max-width:980px){.cd-pair{grid-template-columns:minmax(0,1fr)}}
+
+/* plain-English error help */
+.cd-err-h{margin:0;font-size:13px;line-height:1.5;color:var(--ink)}
+
+/* tests */
+.cd-testb{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;font-size:13.5px;flex:none}
+.cd-testb .ic{width:15px;height:15px}
+.cd-testb small{min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-size:11.5px;font-weight:700;display:inline-grid;place-items:center}
+.cd-testb small:empty{display:none}
+.cd-tcases{display:flex;flex-direction:column;gap:10px;max-height:52vh;overflow:auto}
+.cd-tcase{border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.cd-tch{display:flex;align-items:center;justify-content:space-between;font-size:13.5px}
+.cd-tch .icon-btn{width:28px;height:28px}
+.cd-tcg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cd-tcg label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.cd-tcg textarea{min-height:64px;resize:vertical;font-size:13px}
+.cd-tadd{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;font-size:13.5px}
+.cd-tadd .ic{width:15px;height:15px}
+.cd-tsum{margin:0;font-size:14px;font-weight:700}
+.cd-tsum.good{color:var(--good)} .cd-tsum.bad{color:var(--bad)}
+.cd-case{border-radius:10px;padding:7px 10px;display:flex;flex-direction:column;gap:6px}
+.cd-case.pass{background:color-mix(in srgb,var(--good) 10%,transparent)}
+.cd-case.fail{background:var(--cd-err-bg)}
+.cd-case-h{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-size:13px}
+.cd-case-h .ic{width:15px;height:15px;flex:none}
+.cd-case.pass .cd-case-h .ic{color:var(--good)} .cd-case.fail .cd-case-h .ic{color:var(--bad)}
+.cd-case-h .cd-dim{font-family:var(--cd-mono);font-size:12px}
+.cd-diff{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;font-size:12px}
+.cd-diff pre{margin-top:2px;background:var(--panel);border-radius:8px;padding:6px 8px;max-height:220px;overflow:auto}
+.cd-diff mark{background:color-mix(in srgb,var(--warn) 35%,transparent);color:inherit;border-radius:3px}
+@media (max-width:760px){
+  .cd-testb span{display:none}
+  .cd-testb{padding:7px 9px}
+  .cd-tcg,.cd-diff{grid-template-columns:minmax(0,1fr)}
+}
