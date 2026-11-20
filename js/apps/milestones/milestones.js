@@ -13,6 +13,7 @@ import { knownCourses, courseColor } from "../deadlines/deadlines.js";
 import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
 import * as files from "../../files.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
+import { listDocs, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
 
 const tplLabel = m => m.templateName || TEMPLATES[m.template]?.label || "Custom";
 
@@ -111,7 +112,8 @@ function card(m) {
 }
 
 async function renderList() {
-  current = null;
+  current = null; sel = null; openDoc = null; ws = null;
+  $("#ms-main").classList.remove("wide");
   $("#ms-title").textContent = "Milestones";
   $("#ms-back").hidden = true; root.querySelector("[data-home]").hidden = false;
   const all = (await loadMilestones()).sort((a, b) => a.due - b.due);
@@ -127,14 +129,21 @@ async function renderDetail(id) {
   const raw = await store.get(APP, id);
   if (!raw) { ctx0.toast("That milestone isn't here anymore."); return renderList(); }
   const m = await followDeadline({ id, ...raw });
+  if (current !== id) { sel = null; openDoc = null; }
   current = id;
   $("#ms-title").textContent = "";
   $("#ms-back").hidden = false; root.querySelector("[data-home]").hidden = true;
   const p = progress(m), now = Date.now();
   const linked = m.deadlineKey ? await store.get("deadlines", m.deadlineKey.replace(/^deadlines:/, "")) : null;
   const att = await files.list({ owner: ownerOf(id) }).catch(() => []);
+  const docs = await listDocs(ownerOf(id)).catch(() => []);
+  if (sel && !m.steps.some(s => s.id === sel)) sel = null;
+  ws = { id, m, att, docs };
   const onStep = sid => att.filter(f => f.owner === ownerOf(id, sid));
+  const docsOn = sid => docs.filter(d => d.owner === ownerOf(id, sid));
   const chip = f => `<button class="ms-att" data-act="file" data-fid="${esc(f.id)}" title="Open ${esc(f.name)}">${svg("paperclip")}${esc(f.name)}</button>`;
+  const dchip = d => `<button class="ms-att" data-act="pick-doc" data-did="${esc(d.id)}" title="Show ${esc(d.title)}">${svg(DOC_ICON[d.kind] || "filePen")}${esc(d.title)}</button>`;
+  $("#ms-main").classList.add("wide");
   $("#ms-main").innerHTML = `
     <div class="ms-head">
       <h1>${esc(m.title)}</h1>
@@ -148,15 +157,16 @@ async function renderDetail(id) {
       </div>
     </div>
     ${m.deadlineDone && p.d < p.n ? `<div class="ap-card ap-row"><span class="grow"><span class="t">You checked off the deadline</span><span class="s">The steps left won't remind you anymore.</span></span><button class="pill-btn secondary" data-act="finish">Mark all done</button></div>` : ""}
+    <div class="ms-cols"><div class="ms-left">
     <div class="ap-card" id="ms-steps">
       ${[...m.steps].sort((a, b) => a.date - b.date).map(s => {
         const late = !s.done && s.date < now;
         const ask = s.kind === "quiz" && s.done && !s.rating;
         const rated = s.rating ? `<span class="ap-pill ${s.rating === "good" ? "good" : "warn"}">${s.rating === "good" ? "Got it" : "Shaky"}</span>` : "";
-        return `<div class="ap-row ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""}" data-sid="${s.id}">
+        return `<div class="ap-row ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${s.id === sel ? "sel" : ""}" data-sid="${s.id}">
           <button class="ap-check" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
           <div class="grow"><button class="t link-btn ms-rename" data-act="rename" title="Rename step">${esc(s.title)}</button><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:500;color:${late ? "var(--bad)" : "var(--muted)"};font-size:12.5px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button>
-            ${onStep(s.id).length ? `<span class="ms-atts">${onStep(s.id).map(chip).join("")}</span>` : ""}
+            ${onStep(s.id).length || docsOn(s.id).length ? `<span class="ms-atts">${docsOn(s.id).map(dchip).join("")}${onStep(s.id).map(chip).join("")}</span>` : ""}
             ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
           ${rated}
           <button class="est link-btn" data-act="est" title="How long it takes">${fmtDur(s.estMin || 45)}</button>
@@ -165,36 +175,73 @@ async function renderDetail(id) {
       }).join("")}
       <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="pill-btn" type="submit">Add</button></form>
     </div>
-    <p class="ap-hint">Tap a step's date to move it. Re-plan spreads the unfinished steps from today to the due date and never past it.</p>
+    <p class="ap-hint">Tap a step to open its workspace, or its date to move it. Re-plan spreads the unfinished steps from today to the due date and never past it.</p>
+    </div><aside class="ms-ws" id="ms-ws" aria-label="Workspace"></aside></div>`;
+  drawWorkspace();
+}
 
-    <section class="ap-sec" id="ms-files"><h3>Files<span class="n">${att.length}</span></h3>
-      <div class="ap-card">
-        ${att.map(f => `<div class="ap-row ms-frow" data-fid="${esc(f.id)}">
-          <span class="ms-fic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
-          <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), f.uploaded ? "" : "uploading…"].filter(Boolean).join(" · "))}</span></button>
-          <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
-            <option value="">Whole project</option>
-            ${[...m.steps].sort((a, b) => a.date - b.date).map(s => `<option value="${esc(s.id)}" ${f.owner === ownerOf(id, s.id) ? "selected" : ""}>Step: ${esc(s.title)}</option>`).join("")}
-          </select>
-          <button class="icon-btn" data-act="fdel" aria-label="Remove ${esc(f.name)}">${svg("x")}</button>
-        </div>`).join("")}
-        <label class="ap-row ms-fadd" tabindex="0">${svg("paperclip")}<span class="grow"><span class="t">Attach a file</span><span class="s">Spec, rubric, starter code, drafts. A rubric goes on the submit step by itself.</span></span><input type="file" id="ms-fpick" multiple hidden></label>
-      </div>
-    </section>`;
-  $("#ms-fpick").onchange = async e => {
-    const list = [...e.target.files]; e.target.value = "";
-    for (const file of list) {
-      const sub = /rubric/i.test(file.name) ? submitStep(m) : null;
-      try {
-        await files.add(file, { scope: "milestone", owner: ownerOf(id, sub && sub.id) });
-        ctx0.toast(sub ? `Attached ${file.name} to “${sub.title}”.` : `Attached ${file.name}.`);
-      } catch (err) { ctx0.toast(`${file.name}: ${files.errorText(err)}`); }
-    }
-    renderDetail(id);
+/* ---------- workspace: notes and files for the whole project or the selected step ---------- */
+let sel = null;       // selected step id, or null for the whole project
+let openDoc = null;   // doc shown expanded
+let ws = null;        // what the last renderDetail loaded: { id, m, att, docs }
+const DOC_ICON = { note: "filePen", guide: "fileText", questions: "listChecks" };
+
+function drawWorkspace() {
+  const box = $("#ms-ws"); if (!box || !ws) return;
+  const { id, m, att, docs } = ws;
+  const step = sel ? m.steps.find(s => s.id === sel) : null;
+  // a doc or file whose step was removed counts as the whole project's
+  const stepOf = owner => { const s = String(owner).slice(ownerOf(id).length + 1); return s && m.steps.some(x => x.id === s) ? s : null; };
+  const here = x => stepOf(x.owner) === (step ? step.id : null);
+  const myDocs = docs.filter(here), myFiles = att.filter(here);
+  const also = step ? [...docs.filter(d => !stepOf(d.owner)).map(d => d.title), ...att.filter(f => !stepOf(f.owner)).map(f => f.name)] : [];
+  const steps = [...m.steps].sort((a, b) => a.date - b.date);
+  const docRow = d => {
+    const open = d.id === openDoc;
+    return `<div class="ws-doc ${open ? "open" : ""}" data-did="${esc(d.id)}">
+      <button class="ap-row ws-drow" data-act="ws-open" aria-expanded="${open}"><span class="ms-fic">${svg(DOC_ICON[d.kind] || "filePen")}</span>
+        <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">Edited ${esc(dueLabel(d.updated || d.created))}</span></span>
+        <span class="ap-pill">${esc(KINDS[d.kind] || "Note")}</span>${svg("chevronDown", "ws-chev")}</button>
+      ${open ? `<div class="ws-prev"><div class="ws-md">${renderMd(d.body) || `<p class="ws-muted">Nothing written yet.</p>`}</div>
+        <div class="ws-pacts"><button class="pill-btn secondary" data-act="ws-edit">${svg("pencilLine")}Edit</button><button class="pill-btn secondary" data-act="ws-copydoc">${svg("copy")}Copy text</button></div></div>` : ""}
+    </div>`;
   };
-  root.querySelectorAll('[data-act="fstep"]').forEach(sel => sel.onchange = async () => {
-    await files.update(sel.closest("[data-fid]").dataset.fid, { owner: ownerOf(id, sel.value) }); renderDetail(id);
-  });
+  const fileRow = f => `<div class="ap-row ms-frow" data-fid="${esc(f.id)}">
+      <span class="ms-fic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
+      <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), f.uploaded ? "" : "uploading…"].filter(Boolean).join(" · "))}</span></button>
+      <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
+        <option value="">Whole project</option>
+        ${steps.map(s => `<option value="${esc(s.id)}" ${f.owner === ownerOf(id, s.id) ? "selected" : ""}>Step: ${esc(s.title)}</option>`).join("")}
+      </select>
+      <button class="icon-btn" data-act="fdel" aria-label="Remove ${esc(f.name)}">${svg("x")}</button>
+    </div>`;
+  box.innerHTML = `
+    <div class="ws-head">
+      <h3>Workspace<span> · ${esc(step ? step.title : "Whole project")}</span></h3>
+      <span class="ws-btns">${step ? `<button class="link-btn ws-allbtn" data-act="ws-all">Whole project</button>` : ""}
+        <button class="pill-btn secondary" data-act="ws-note">${svg("plus")}Note</button>
+        <label class="pill-btn secondary ws-file" tabindex="0">${svg("paperclip")}File<input type="file" id="ms-fpick" multiple hidden></label></span>
+    </div>
+    <div class="ws-prompt">
+      <span class="ws-pic">${svg("sparkles")}</span>
+      <span class="grow"><b>Study with your AI</b><span>Copy a prompt, paste it into any AI chat, then paste the answer back here as a note.</span></span>
+      <span class="ws-pgo"><select class="field" id="ws-pk" aria-label="What the prompt asks for">
+        <option value="guide">${m.template === "exam" ? "Study guide" : "Explain this"}</option><option value="questions">Practice questions</option></select>
+      <button class="pill-btn" data-act="ws-copy">${svg("copy")}Copy prompt</button></span>
+    </div>
+    <div class="ap-card ws-list">
+      ${myDocs.map(docRow).join("")}${myFiles.map(fileRow).join("")}
+      ${myDocs.length || myFiles.length ? "" : `<div class="ws-empty">${step ? "Nothing on this step yet." : "Nothing here yet."} Add a note, or attach the spec, rubric or your drafts.${step ? "" : " A rubric goes on the submit step by itself."}</div>`}
+    </div>
+    ${also.length ? `<p class="ws-also">Also on the whole project: <button class="link-btn" data-act="ws-all">${esc(also.join(", "))}</button></p>` : ""}`;
+}
+function markSel() {
+  root.querySelectorAll(".ms-step").forEach(r => r.classList.toggle("sel", r.dataset.sid === sel));
+}
+function selectStep(sid, { scroll = true } = {}) {
+  sel = sid; markSel(); drawWorkspace();
+  // on a phone the workspace sits under the steps, so bring it into view
+  if (scroll && sid && matchMedia("(max-width: 899px)").matches) $("#ms-ws")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function update(id, fn) {
@@ -375,6 +422,31 @@ async function mount(el, ctx) {
     }
     if (act === "fstep") return;
     const sid = e.target.closest("[data-sid]")?.dataset.sid;
+    const did = e.target.closest("[data-did]")?.dataset.did;
+    const doc = did && ws ? ws.docs.find(d => d.id === did) : null;
+    if (!act) {
+      // tap a step row (not one of its buttons) to open its workspace; tap again for the whole project
+      if (sid && !e.target.closest("input,select,label")) selectStep(sel === sid ? null : sid);
+      return;
+    }
+    if (act === "ws-all") { openDoc = null; selectStep(null); return; }
+    if (act === "pick-doc") { openDoc = did; selectStep(sid); return; }
+    if (act === "ws-open") { openDoc = openDoc === did ? null : did; drawWorkspace(); return; }
+    if (act === "ws-note") {
+      openDocEditor(root, { owner: ownerOf(id, sel), kind: "note" }, { toast: ctx0.toast, onSave: nid => { openDoc = nid; renderDetail(id); } });
+      return;
+    }
+    if (act === "ws-edit" && doc) {
+      openDocEditor(root, doc, { toast: ctx0.toast, onSave: () => renderDetail(id), onDelete: () => { openDoc = null; renderDetail(id); } });
+      return;
+    }
+    if (act === "ws-copydoc" && doc) { ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead."); return; }
+    if (act === "ws-copy" && ws) {
+      const step = sel ? ws.m.steps.find(s => s.id === sel) : null;
+      const ok = await copyText(studyPrompt(ws.m, step, $("#ws-pk").value));
+      ctx0.toast(ok ? "Prompt copied. Paste it into your AI, then add the answer as a note." : "Couldn't copy the prompt.");
+      return;
+    }
     if (act === "toggle") {
       const m = await update(id, m => ({ ...m, steps: m.steps.map(s => s.id === sid ? { ...s, done: !s.done } : s) }));
       if (m && !m.steps.some(s => !s.done)) ctx0.toast(`All steps done for “${m.title}”. Nice work.`);
@@ -390,7 +462,12 @@ async function mount(el, ctx) {
       if (shaky && m) { const a = m.steps[m.steps.length - 1]; ctx0.toast(`Added “${a.title}” for ${dueLabel(a.date)}.`); }
       renderDetail(id);
     } else if (act === "rmstep") {
-      await update(id, m => ({ ...m, steps: m.steps.filter(s => s.id !== sid) })); renderDetail(id);
+      await update(id, m => ({ ...m, steps: m.steps.filter(s => s.id !== sid) }));
+      // the step's notes and files move to the whole project
+      await moveDocs(ownerOf(id, sid), ownerOf(id)).catch(() => {});
+      for (const f of await files.list({ owner: ownerOf(id, sid) }).catch(() => [])) await files.update(f.id, { owner: ownerOf(id) });
+      if (sel === sid) sel = null;
+      renderDetail(id);
     } else if (act === "date") {
       const btn = e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
       const inp = document.createElement("input"); inp.type = "datetime-local"; inp.value = toLocalInput(s.date);
@@ -448,8 +525,31 @@ async function mount(el, ctx) {
     } else if (act === "del-yes") {
       const raw = await store.get(APP, id); await store.remove(APP, id);
       for (const f of await files.list({ owner: ownerOf(id) }).catch(() => [])) await files.remove(f.id);
+      for (const d of await listDocs(ownerOf(id)).catch(() => [])) await removeDoc(d.id);
       ctx0.toast(`Deleted “${raw ? raw.title : "milestone"}”`); go("");
     } else if (act === "del-no") renderDetail(id);
+  });
+  $("#ms-main").addEventListener("change", async e => {
+    if (!current) return;
+    const id = current;
+    if (e.target.id === "ms-fpick") {
+      const list = [...e.target.files]; e.target.value = "";
+      const m = ws && ws.m;
+      for (const file of list) {
+        // on a step: attach there. On the whole project: a rubric goes to the submit step.
+        const sub = sel && m ? m.steps.find(s => s.id === sel) : /rubric/i.test(file.name) && m ? submitStep(m) : null;
+        try {
+          await files.add(file, { scope: "milestone", owner: ownerOf(id, sub && sub.id) });
+          ctx0.toast(sub ? `Attached ${file.name} to “${sub.title}”.` : `Attached ${file.name}.`);
+        } catch (err) { ctx0.toast(`${file.name}: ${files.errorText(err)}`); }
+      }
+      renderDetail(id);
+    } else if (e.target.dataset.act === "fstep") {
+      await files.update(e.target.closest("[data-fid]").dataset.fid, { owner: ownerOf(id, e.target.value) }); renderDetail(id);
+    }
+  });
+  $("#ms-main").addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.classList.contains("ws-file")) { e.preventDefault(); e.target.querySelector("input").click(); }
   });
   $("#ms-main").addEventListener("submit", async e => {
     if (e.target.id !== "ms-addstep" || !current) return;
@@ -466,7 +566,7 @@ async function mount(el, ctx) {
     renderDetail(id);
     if (when) ctx0.toast(`Added for ${dueLabel(when)}. Tap its date to move it.`);
   });
-  store.onChange(ch => { if (ch.app === APP && ctx0.isActive() && ch.source === "remote") (current ? renderDetail(current) : renderList()); });
+  store.onChange(ch => { if ((ch.app === APP || (ch.app === "docs" && current)) && ctx0.isActive() && ch.source === "remote") (current ? renderDetail(current) : renderList()); });
 }
 
 /** show("") list · show("<id>") one milestone · show("new?deadline=<id>") new plan from a deadline */
