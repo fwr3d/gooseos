@@ -87,13 +87,14 @@ export function renderMd(src) {
 
 /* ---------- editor sheet ---------- */
 /** Open the doc editor over `root`. `doc` is an existing doc or { owner, kind }. */
-export function openDocEditor(root, doc, { onSave, onDelete, toast } = {}) {
+export function openDocEditor(root, doc, { onSave, onDelete, toast, prompt } = {}) {
   let kind = doc.kind || "note";
   const back = document.createElement("div"); back.className = "ap-back";
   back.innerHTML = `<form class="ap-sheet ms-sheet ws-ed" role="dialog" aria-modal="true" aria-label="${doc.id ? "Edit" : "New"} ${KINDS[kind].toLowerCase()}" autocomplete="off">
     <h2>${doc.id ? "Edit" : "New note"}</h2>
     <label>Title<input class="field" id="ws-t" placeholder="${kind === "guide" ? "Study guide: recursion" : "What this is"}" value="${esc(doc.title || "")}"></label>
     <div class="ms-tpl-l"><span>Kind</span><div class="ms-tpls" id="ws-kinds">${Object.entries(KINDS).map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${k === kind}">${l}</button>`).join("")}</div></div>
+    ${prompt ? `<p class="note ws-ed-prompt" id="ws-pr" ${kind === "note" ? "hidden" : ""}>Need one? <button type="button" class="link-btn" id="ws-prc">Copy a prompt for ${kind === "questions" ? "practice questions" : "a study guide"}</button>, paste it into your AI, then paste the answer below.</p>` : ""}
     <label>Text<textarea class="field ws-body" id="ws-b" placeholder="Type, or paste what your AI gave you. # headings, - bullets and **bold** work.">${esc(doc.body || "")}</textarea></label>
     <span class="ap-err" id="ws-err"></span>
     <div class="acts">${doc.id ? `<button type="button" class="pill-btn secondary" id="ws-del" style="color:var(--bad)">Delete</button>` : "<span></span>"}
@@ -108,6 +109,11 @@ export function openDocEditor(root, doc, { onSave, onDelete, toast } = {}) {
     const b = e.target.closest("[data-k]"); if (!b) return;
     kind = b.dataset.k;
     $("#ws-kinds").querySelectorAll("[data-k]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    if ($("#ws-pr")) { $("#ws-pr").hidden = kind === "note"; $("#ws-prc").textContent = `Copy a prompt for ${kind === "questions" ? "practice questions" : "a study guide"}`; }
+  });
+  $("#ws-prc")?.addEventListener("click", async () => {
+    const ok = await copyText(prompt(kind === "questions" ? "questions" : "guide"));
+    if (toast) toast(ok ? "Prompt copied" : "Couldn't copy the prompt.");
   });
   $("#ws-del")?.addEventListener("click", e => {
     const wrap = e.target.parentElement;

@@ -150,11 +150,15 @@ async function renderDetail(id) {
           <h1>${esc(m.title)}</h1>
         </div>
         <div class="ms-actions">
-          <button class="ms-ob" data-act="replan" title="Spread the unfinished steps from today to the due date">${svg("refreshCw")}Re-plan</button>
-          <button class="ms-ob" data-act="edit">${svg("pencilLine")}Edit</button>
           <button class="ms-ob" data-act="save-tpl" title="Reuse these steps for the next one">${svg("copy")}Save as template</button>
-          <span id="ms-del-wrap"><button class="ms-ob danger" data-act="del">${svg("trash2")}Delete</button></span>
+          <span class="ms-more"><button class="ms-ob icon" data-act="more" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${svg("ellipsis")}</button>
+            <span class="ms-menu" role="menu" hidden>
+              <button role="menuitem" data-act="replan" title="Spread the unfinished steps from today to the due date">${svg("refreshCw")}Re-plan from today</button>
+              <button role="menuitem" data-act="edit">${svg("pencilLine")}Edit plan</button>
+              <button role="menuitem" class="danger" data-act="del">${svg("trash2")}Delete</button>
+            </span></span>
         </div>
+        <span id="ms-del-wrap"></span>
       </div>
       <div class="ms-meter"><div class="ap-bar-meter"><i style="width:${p.pct}%;background:${p.d === p.n ? "var(--tint-green-fg)" : "var(--tint-blue-fg)"}"></i></div><span>${p.d} of ${p.n} steps</span></div>
     </div>
@@ -240,9 +244,7 @@ function drawWorkspace() {
     <div class="ws-prompt">
       <span class="ws-pic">${svg("sparkles")}</span>
       <span class="grow"><b>Study prompt</b><span>${esc(promptSub)}</span></span>
-      <span class="ws-pgo"><select class="field" id="ws-pk" aria-label="What the prompt asks for">
-        <option value="guide">${m.template === "exam" ? "Study guide" : "Explain this"}</option><option value="questions">Practice questions</option></select>
-      <button class="ms-ob sm" data-act="ws-copy">${svg("copy")}Copy prompt</button></span>
+      <button class="ms-ob sm ws-copy" data-act="ws-copy">${svg("copy")}Copy prompt</button>
     </div>
     <div class="ws-list">
       ${myDocs.map(docRow).join("")}${myFiles.map(fileRow).join("")}
@@ -250,6 +252,8 @@ function drawWorkspace() {
     </div>
     ${also.length ? `<p class="ws-also">Also on the whole project: <button class="link-btn" data-act="ws-all">${esc(also.join(", "))}</button></p>` : ""}`;
 }
+/** For the doc editor: builds the prompt for a guide or practice questions on this step. */
+const promptFor = sid => kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind);
 function markSel() {
   root.querySelectorAll(".ms-step").forEach(r => r.classList.toggle("sel", r.dataset.sid === sel));
 }
@@ -422,6 +426,9 @@ async function mount(el, ctx) {
   $("#ms-new").onclick = () => openSheet();
   $("#ms-back").onclick = () => go("");
 
+  const closeMenu = () => { const m = root.querySelector(".ms-menu"); if (m && !m.hidden) { m.hidden = true; root.querySelector('[data-act="more"]')?.setAttribute("aria-expanded", "false"); } };
+  document.addEventListener("click", e => { if (!e.target.closest(".ms-more")) closeMenu(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
   $("#ms-main").addEventListener("click", async e => {
     const act = e.target.closest("[data-act]")?.dataset.act;
     const cardEl = e.target.closest(".ms-card");
@@ -429,6 +436,13 @@ async function mount(el, ctx) {
     if (act === "new") return openSheet();
     if (!current) return;
     const id = current;
+    const menu = $(".ms-menu");
+    if (act === "more") {
+      menu.hidden = !menu.hidden;
+      e.target.closest("[data-act]").setAttribute("aria-expanded", String(!menu.hidden));
+      return;
+    }
+    if (menu && !menu.hidden) { menu.hidden = true; $('[data-act="more"]')?.setAttribute("aria-expanded", "false"); }
     if (act === "file") { openAttachment(e.target.closest("[data-fid]").dataset.fid); return; }
     if (act === "fdel") {
       const fid = e.target.closest("[data-fid]").dataset.fid, f = await files.get(fid);
@@ -448,17 +462,17 @@ async function mount(el, ctx) {
     if (act === "pick-doc") { openDoc = did; selectStep(sid); return; }
     if (act === "ws-open") { openDoc = openDoc === did ? null : did; drawWorkspace(); return; }
     if (act === "ws-note") {
-      openDocEditor(root, { owner: ownerOf(id, sel), kind: "note" }, { toast: ctx0.toast, onSave: nid => { openDoc = nid; renderDetail(id); } });
+      openDocEditor(root, { owner: ownerOf(id, sel), kind: "note" }, { toast: ctx0.toast, prompt: promptFor(sel), onSave: nid => { openDoc = nid; renderDetail(id); } });
       return;
     }
     if (act === "ws-edit" && doc) {
-      openDocEditor(root, doc, { toast: ctx0.toast, onSave: () => renderDetail(id), onDelete: () => { openDoc = null; renderDetail(id); } });
+      openDocEditor(root, doc, { toast: ctx0.toast, prompt: promptFor(String(doc.owner).split(":")[2] || null), onSave: () => renderDetail(id), onDelete: () => { openDoc = null; renderDetail(id); } });
       return;
     }
     if (act === "ws-copydoc" && doc) { ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead."); return; }
     if (act === "ws-copy" && ws) {
       const step = sel ? ws.m.steps.find(s => s.id === sel) : null;
-      const ok = await copyText(studyPrompt(ws.m, step, $("#ws-pk").value));
+      const ok = await copyText(studyPrompt(ws.m, step, "guide"));
       ctx0.toast(ok ? "Prompt copied. Paste it into your AI, then add the answer as a note." : "Couldn't copy the prompt.");
       return;
     }

@@ -94,9 +94,7 @@ export const savePrefs = p => store.put("shell", "home", p);
 async function iconHtml(a, { label = true } = {}) {
   let badge = "";
   try { badge = a.badge ? (await a.badge()) || "" : ""; } catch (e) { badge = ""; }
-  const face = a.id === "settings"
-    ? `<span class="sq sq-goose"><img src="icons/source/goose.png" alt=""></span>`
-    : `<span class="sq" style="${tileStyle(a)}">${svg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span>`;
+  const face = `<span class="sq" style="${tileStyle(a)}">${svg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span>`;
   return `<button class="app-ic" data-open="${a.id}" aria-label="${esc(a.name)}${badge ? `, ${esc(badge)} need attention` : ""}">${face}${label ? `<span class="lb">${esc(a.name)}</span>` : ""}</button>`;
 }
 
