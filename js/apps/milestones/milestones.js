@@ -208,8 +208,10 @@ async function update(id, fn) {
 async function openSheet({ edit, prefill = {} } = {}) {
   const courses = await knownCourses();
   const m = edit || { title: prefill.title || "", course: prefill.course || "", due: prefill.due || null, template: prefill.template || "project", blockedDays: [...DEFAULT_BLOCKED], deadlineKey: prefill.deadlineKey || "" };
-  let template = m.template, blocked = [...(m.blockedDays || DEFAULT_BLOCKED)];
-  let mine = edit ? [] : await loadTemplates();
+  const startTpl = m.template || "custom";
+  let template = startTpl, blocked = [...(m.blockedDays || DEFAULT_BLOCKED)];
+  let mine = await loadTemplates();
+  const openCount = edit ? edit.steps.filter(s => !s.done).length : 0;
   const mineOf = k => mine.find(t => `u:${t.id}` === k);
   const back = document.createElement("div"); back.className = "ap-back";
   back.innerHTML = `<form class="ap-sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${edit ? "Edit milestone" : "New milestone"}" autocomplete="off">
@@ -220,10 +222,11 @@ async function openSheet({ edit, prefill = {} } = {}) {
       <label>Course<input class="field" name="course" value="${esc(m.course)}" placeholder="CS 18000" list="ms-courses"></label>
       <label>Due<input class="field" type="datetime-local" name="due" required value="${m.due ? toLocalInput(m.due) : ""}"></label>
     </div>
-    ${edit ? "" : `<div class="ms-tpl-l"><span>Template</span><div class="ms-tpls" id="ms-tpls"></div></div>
-    <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>`}
+    <div class="ms-tpl-l"><span>Template</span><div class="ms-tpls" id="ms-tpls"></div></div>
+    <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>
     <label>Skip these days<div class="ap-days">${DAY_NAMES.map((d, i) => `<button type="button" data-day="${i}" aria-pressed="${blocked.includes(i)}">${d}</button>`).join("")}</div></label>
-    ${edit ? `<p class="note" style="margin:0">Changing the due date or skipped days re-plans the unfinished steps.</p>` : `<label>Plan<div class="ms-preview" id="ms-preview"></div></label>`}
+    ${edit ? `<p class="note" style="margin:0" id="ms-edit-note"></p>` : ""}
+    <label id="ms-preview-l" ${edit ? "hidden" : ""}><span>${edit ? "New steps" : "Plan"}</span><div class="ms-preview" id="ms-preview"></div></label>
     <span class="ap-err" id="ms-err"></span>
     <div class="acts"><span></span><span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">${edit ? "Save" : "Make plan"}</button></span></div>
     <datalist id="ms-courses">${courses.map(c => `<option value="${esc(c)}">`).join("")}</datalist>
@@ -242,7 +245,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
   // template picker: the built-in ones, then yours, then a button to make one
   const drawTpls = () => {
     const box = f.querySelector("#ms-tpls"); if (!box) return;
-    if (template.startsWith("u:") && !mineOf(template)) template = "project";
+    if (template.startsWith("u:") && !mineOf(template) && template !== startTpl) template = "project";
     const btn = (k, label) => `<button type="button" data-tpl="${esc(k)}" aria-pressed="${k === template}">${esc(label)}</button>`;
     box.innerHTML = Object.entries(TEMPLATES).filter(([k]) => k !== "custom").map(([k, t]) => btn(k, t.label)).join("")
       + mine.map(t => btn(`u:${t.id}`, t.name)).join("")
@@ -260,8 +263,17 @@ async function openSheet({ edit, prefill = {} } = {}) {
   });
   drawTpls();
   const dueMs = () => f.due.value ? new Date(f.due.value).getTime() : null;
+  const swapping = () => !!edit && template !== startTpl;
   const preview = () => {
     const box = f.querySelector("#ms-preview"); if (!box) return;
+    if (edit) {
+      const sw = swapping();
+      f.querySelector("#ms-preview-l").hidden = !sw;
+      f.querySelector("#ms-edit-note").textContent = sw
+        ? `Switching the template replaces the ${openCount} step${openCount === 1 ? "" : "s"} you haven't done. Finished steps stay.`
+        : "Changing the due date or skipped days re-plans the unfinished steps.";
+      if (!sw) return;
+    }
     const due = dueMs();
     if (!due) { box.innerHTML = `<div>Pick a due date to see the plan.</div>`; return; }
     if (due < Date.now()) { box.innerHTML = `<div>That due date has already passed.</div>`; return; }
@@ -290,6 +302,15 @@ async function openSheet({ edit, prefill = {} } = {}) {
     if (!title || !due) return;
     if (edit) {
       if (due !== edit.due && due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
+      if (swapping()) {
+        if (due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
+        const fresh = buildPlan(template, Date.now(), due, blocked, opts());
+        if (!fresh.length) { err.textContent = "Add at least one step."; return; }
+        const own = mineOf(template), { templateName, ...rest } = edit;
+        await save({ ...rest, title, course, due, blockedDays: blocked, template, ...(own ? { templateName: own.name } : {}),
+          steps: [...edit.steps.filter(s => s.done), ...fresh] });
+        close(); renderDetail(edit.id); ctx0.toast(`Switched to ${own ? own.name : TEMPLATES[template]?.label || "your list"}: ${fresh.length} new step${fresh.length === 1 ? "" : "s"}.`); return;
+      }
       const changed = due !== edit.due || blocked.join() !== (edit.blockedDays || []).join();
       const steps = changed ? replan(edit.steps, Date.now(), due, blocked) : edit.steps;
       await save({ ...edit, title, course, due, blockedDays: blocked, steps });
