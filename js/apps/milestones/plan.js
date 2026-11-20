@@ -139,8 +139,10 @@ export function shakyReviewDate(steps, now, due) {
   return Math.max(t, now + 30 * 60e3);
 }
 
-/** Steps for a template. Custom uses `lines`. (Exams have their own builder above.) */
-export function templateSteps(template, { lines = [] } = {}) {
+/** Steps for a template. Custom uses `lines`; your own templates pass `steps` ({ title, at, estMin }).
+ *  (Exams have their own builder above.) */
+export function templateSteps(template, { lines = [], steps } = {}) {
+  if (Array.isArray(steps)) return steps.map(s => ({ ...s })).sort((a, b) => a.at - b.at);
   if (template === "custom") {
     const ls = lines.map(l => l.trim()).filter(Boolean);
     return ls.map((t, i) => ({ title: t, at: ls.length === 1 ? 0.8 : 0.05 + (i / (ls.length - 1)) * 0.9, estMin: 45 }));
@@ -158,12 +160,22 @@ export function buildPlan(template, from, due, blocked = DEFAULT_BLOCKED, opts =
 }
 
 /** Re-plan: spread unfinished steps evenly from today to the due date, in order. Finished steps stay put. */
+// An exam's final review stays on the night before; the other open steps spread out before it.
 export function replan(steps, now, due, blocked = DEFAULT_BLOCKED) {
-  const open = steps.filter(s => !s.done);
-  if (!open.length) return steps;
+  const order = [...steps].filter(s => !s.done).sort((a, b) => a.date - b.date);
+  if (!order.length) return steps;
   const from = Math.min(now, due);
+  const byId = new Map();
+  const finals = order.filter(s => s.kind === "review" || s.kind === "night");
+  let end = due;
+  if (finals.length) {
+    const t = at8(startOfDay(due - 864e5));
+    end = t > from ? Math.min(t, due - 3600e3) : Math.min(from + 30 * 60e3, due);
+    finals.forEach((s, i) => byId.set(s.id, end + i));
+  }
+  const open = order.filter(s => !finals.includes(s));
   const k = open.length;
-  const spaced = placeSteps(open.map((s, i) => ({ ...s, at: k === 1 ? 0.5 : i / (k - 1) * 0.9 })), from, due, blocked);
-  const byId = new Map(spaced.map(s => [s.id, s.date]));
+  if (k) placeSteps(open.map((s, i) => ({ ...s, at: k === 1 ? 0.5 : i / (k - 1) * 0.9 })), from, end, blocked)
+    .forEach(s => byId.set(s.id, s.date));
   return steps.map(s => (s.done ? s : { ...s, date: byId.get(s.id) }));
 }

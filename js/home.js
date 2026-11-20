@@ -46,7 +46,7 @@ export const SMALL = {
   } },
   milestone: { label: "Milestone", open: "milestones", async render(el) {
     let ms = []; try { ms = await (await import("./apps/milestones/milestones.js")).loadMilestones(); } catch (e) { /* none */ }
-    const active = ms.filter(m => m.steps.some(s => !s.done)).sort((a, b) => a.due - b.due)[0];
+    const active = ms.filter(m => !m.deadlineDone && m.steps.some(s => !s.done)).sort((a, b) => a.due - b.due)[0];
     if (!active) { el.innerHTML = `<span class="h-k">Milestones</span><span class="h-t">Break a big project into steps</span>`; return; }
     const done = active.steps.filter(s => s.done).length, next = active.steps.filter(s => !s.done).sort((a, b) => a.date - b.date)[0];
     el.innerHTML = `<span class="h-k">${esc(active.title)}</span><span class="h-t">${esc(next.title)}</span><span class="h-s">${esc(dueText(next.date))}</span>
@@ -54,9 +54,6 @@ export const SMALL = {
   } },
   wallet: { label: "Wallet", open: "wallet", async render(el) {
     const a = app("wallet"); if (a && a.widget) await a.widget(el, { store, svg });
-  } },
-  laundry: { label: "Laundry", open: "laundry", async render(el) {
-    const a = app("laundry"); if (a && a.widget) await a.widget(el, { store, svg });
   } },
   whiteboard: { label: "Whiteboard", open: "whiteboard", async render(el) {
     const wb = app("whiteboard"); if (wb && wb.widget) await wb.widget(el, { store, svg });

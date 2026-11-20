@@ -12,6 +12,9 @@ import { dueLabel, toLocalInput } from "../deadlines/parse.js";
 import { knownCourses, courseColor } from "../deadlines/deadlines.js";
 import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
 import * as files from "../../files.js";
+import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
+
+const tplLabel = m => m.templateName || TEMPLATES[m.template]?.label || "Custom";
 
 // Files attach to a milestone (owner "milestones:<id>") or to one step ("milestones:<id>:<step id>").
 // A file named like a rubric goes on the step where you turn the thing in.
@@ -33,9 +36,30 @@ const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : 
 
 /* ---------- data ---------- */
 export async function loadMilestones() {
-  return (await store.list(APP)).map(r => ({ id: r.id, ...r.data })).filter(m => m && Array.isArray(m.steps));
+  const list = (await store.list(APP)).map(r => ({ id: r.id, ...r.data })).filter(m => m && Array.isArray(m.steps));
+  for (const m of list) await followDeadline(m);
+  return list;
 }
-const save = m => { const { id, ...data } = m; return store.put(APP, id, data); };
+const save = m => { const { id, deadlineDone, ...data } = m; return store.put(APP, id, data); };
+
+/** A plan made from a deadline follows it: a new due date re-plans the open steps,
+ *  and once the deadline is checked off the steps stop reminding you (m.deadlineDone). */
+async function followDeadline(m) {
+  if (!m.deadlineKey) return m;
+  const d = await store.get("deadlines", m.deadlineKey.replace(/^deadlines:/, ""));
+  if (!d) return m;   // not synced to this device yet, or deleted: leave the plan as it is
+  m.deadlineDone = !!d.done;
+  if (!d.done && d.due && d.due !== m.due && d.due > Date.now()) {
+    m.due = d.due;
+    m.steps = replan(m.steps, Date.now(), m.due, m.blockedDays || DEFAULT_BLOCKED);
+    await save(m);
+  }
+  return m;
+}
+const isOpen = m => !m.deadlineDone && m.steps.some(s => !s.done);
+export async function planFor(deadlineId) {
+  return (await loadMilestones()).find(m => m.deadlineKey === `deadlines:${deadlineId}`) || null;
+}
 const progress = m => { const n = m.steps.length, d = m.steps.filter(s => s.done).length; return { n, d, pct: n ? Math.round(d / n * 100) : 0 }; };
 const nextStep = m => m.steps.filter(s => !s.done).sort((a, b) => a.date - b.date)[0];
 
@@ -55,6 +79,7 @@ export async function agenda() {
   const att = new Map();
   for (const f of await files.list({ scope: "milestone" }).catch(() => [])) { const k = f.owner; if (!att.has(k)) att.set(k, []); att.get(k).push({ id: f.id, name: f.name }); }
   for (const m of await loadMilestones()) {
+    if (m.deadlineDone) continue;
     for (const s of m.steps) {
       if (s.done && s.date < cutoff) continue;
       const attach = att.get(ownerOf(m.id, s.id));
@@ -78,8 +103,8 @@ let current = null;   // open milestone id, or null for the list
 function card(m) {
   const p = progress(m), nx = nextStep(m), late = m.steps.filter(s => !s.done && s.date < Date.now()).length;
   return `<button class="ms-card" data-id="${m.id}">
-    <div class="ms-top"><span class="t">${esc(m.title)}</span>${late ? `<span class="ap-pill bad">${late} late</span>` : p.d === p.n ? `<span class="ap-pill good">Done</span>` : ""}</div>
-    <div class="ms-sub">${m.course ? `<span class="chip course" style="background:${courseColor(m.course)}">${esc(m.course)}</span>` : ""}<span>${esc(TEMPLATES[m.template]?.label || "Custom")}</span><span>·</span><span>Due ${esc(dueLabel(m.due))}</span></div>
+    <div class="ms-top"><span class="t">${esc(m.title)}</span>${m.deadlineDone && p.d < p.n ? `<span class="ap-pill good">Turned in</span>` : late ? `<span class="ap-pill bad">${late} late</span>` : p.d === p.n ? `<span class="ap-pill good">Done</span>` : ""}</div>
+    <div class="ms-sub">${m.course ? `<span class="chip course" style="background:${courseColor(m.course)}">${esc(m.course)}</span>` : ""}<span>${esc(tplLabel(m))}</span><span>·</span><span>Due ${esc(dueLabel(m.due))}</span></div>
     ${nx ? `<div class="ms-next">${svg("chevronRight")}<span>Next:</span><b>${esc(nx.title)}</b><span class="ap-hint" style="padding:0">${esc(dueLabel(nx.date))}</span></div>` : ""}
     <div class="ms-meter"><div class="ap-bar-meter"><i style="width:${p.pct}%;background:${p.d === p.n ? "var(--good)" : "var(--accent)"}"></i></div><span>${p.d}/${p.n}</span></div>
   </button>`;
@@ -90,7 +115,7 @@ async function renderList() {
   $("#ms-title").textContent = "Milestones";
   $("#ms-back").hidden = true; root.querySelector("[data-home]").hidden = false;
   const all = (await loadMilestones()).sort((a, b) => a.due - b.due);
-  const active = all.filter(m => m.steps.some(s => !s.done)), finished = all.filter(m => !m.steps.some(s => !s.done));
+  const active = all.filter(isOpen), finished = all.filter(m => !isOpen(m));
   let html = "";
   if (!all.length) html = `<div class="ap-card"><div class="ap-empty"><b>Break big things into small steps</b>Pick a project, paper, exam or presentation, give it a due date, and GooseOS spaces the steps out for you, skipping Fridays and Saturdays.<div style="margin-top:14px"><button class="pill-btn" data-act="new">New milestone</button></div></div></div>`;
   if (active.length) html += `<section class="ap-sec"><h3>In progress<span class="n">${active.length}</span></h3><div class="ap-card">${active.map(card).join("")}</div></section>`;
@@ -101,7 +126,7 @@ async function renderList() {
 async function renderDetail(id) {
   const raw = await store.get(APP, id);
   if (!raw) { ctx0.toast("That milestone isn't here anymore."); return renderList(); }
-  const m = { id, ...raw };
+  const m = await followDeadline({ id, ...raw });
   current = id;
   $("#ms-title").textContent = "";
   $("#ms-back").hidden = false; root.querySelector("[data-home]").hidden = true;
@@ -113,14 +138,16 @@ async function renderDetail(id) {
   $("#ms-main").innerHTML = `
     <div class="ms-head">
       <h1>${esc(m.title)}</h1>
-      <div class="ms-sub">${m.course ? `<span class="chip course" style="background:${courseColor(m.course)}">${esc(m.course)}</span>` : ""}<span>${esc(TEMPLATES[m.template]?.label || "Custom")}</span><span>·</span><span>Due ${esc(dueLabel(m.due))}</span>${linked ? `<span>·</span><a class="link-btn" style="padding:0" href="#deadlines/${esc(m.deadlineKey.replace(/^deadlines:/, ""))}">Linked deadline</a>` : ""}</div>
+      <div class="ms-sub">${m.course ? `<span class="chip course" style="background:${courseColor(m.course)}">${esc(m.course)}</span>` : ""}<span>${esc(tplLabel(m))}</span><span>·</span><span>Due ${esc(dueLabel(m.due))}</span>${linked ? `<span>·</span><a class="link-btn" style="padding:0" href="#deadlines/${esc(m.deadlineKey.replace(/^deadlines:/, ""))}">Linked deadline</a>` : ""}</div>
       <div class="ms-meter"><div class="ap-bar-meter"><i style="width:${p.pct}%;background:${p.d === p.n ? "var(--good)" : "var(--accent)"}"></i></div><span>${p.d}/${p.n} steps</span></div>
       <div class="ms-actions">
         <button class="pill-btn secondary" data-act="replan" title="Spread the unfinished steps from today to the due date">${svg("refreshCw")}Re-plan</button>
         <button class="pill-btn secondary" data-act="edit">${svg("pencilLine")}Edit</button>
+        <button class="pill-btn secondary" data-act="save-tpl" title="Reuse these steps for the next one">${svg("copy")}Save as template</button>
         <span id="ms-del-wrap"><button class="pill-btn secondary" data-act="del" style="color:var(--bad)">${svg("trash2")}Delete</button></span>
       </div>
     </div>
+    ${m.deadlineDone && p.d < p.n ? `<div class="ap-card ap-row"><span class="grow"><span class="t">You checked off the deadline</span><span class="s">The steps left won't remind you anymore.</span></span><button class="pill-btn secondary" data-act="finish">Mark all done</button></div>` : ""}
     <div class="ap-card" id="ms-steps">
       ${[...m.steps].sort((a, b) => a.date - b.date).map(s => {
         const late = !s.done && s.date < now;
@@ -128,11 +155,11 @@ async function renderDetail(id) {
         const rated = s.rating ? `<span class="ap-pill ${s.rating === "good" ? "good" : "warn"}">${s.rating === "good" ? "Got it" : "Shaky"}</span>` : "";
         return `<div class="ap-row ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""}" data-sid="${s.id}">
           <button class="ap-check" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
-          <div class="grow"><span class="t">${esc(s.title)}</span><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:500;color:${late ? "var(--bad)" : "var(--muted)"};font-size:12.5px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button>
+          <div class="grow"><button class="t link-btn ms-rename" data-act="rename" title="Rename step">${esc(s.title)}</button><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:500;color:${late ? "var(--bad)" : "var(--muted)"};font-size:12.5px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button>
             ${onStep(s.id).length ? `<span class="ms-atts">${onStep(s.id).map(chip).join("")}</span>` : ""}
             ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
           ${rated}
-          <span class="est">${fmtDur(s.estMin || 45)}</span>
+          <button class="est link-btn" data-act="est" title="How long it takes">${fmtDur(s.estMin || 45)}</button>
           <button class="icon-btn ms-del" data-act="rmstep" aria-label="Remove step">${svg("x")}</button>
         </div>`;
       }).join("")}
@@ -182,6 +209,8 @@ async function openSheet({ edit, prefill = {} } = {}) {
   const courses = await knownCourses();
   const m = edit || { title: prefill.title || "", course: prefill.course || "", due: prefill.due || null, template: prefill.template || "project", blockedDays: [...DEFAULT_BLOCKED], deadlineKey: prefill.deadlineKey || "" };
   let template = m.template, blocked = [...(m.blockedDays || DEFAULT_BLOCKED)];
+  let mine = edit ? [] : await loadTemplates();
+  const mineOf = k => mine.find(t => `u:${t.id}` === k);
   const back = document.createElement("div"); back.className = "ap-back";
   back.innerHTML = `<form class="ap-sheet ms-sheet" role="dialog" aria-modal="true" aria-label="${edit ? "Edit milestone" : "New milestone"}" autocomplete="off">
     <h2>${edit ? "Edit milestone" : "New milestone"}</h2>
@@ -191,7 +220,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
       <label>Course<input class="field" name="course" value="${esc(m.course)}" placeholder="CS 18000" list="ms-courses"></label>
       <label>Due<input class="field" type="datetime-local" name="due" required value="${m.due ? toLocalInput(m.due) : ""}"></label>
     </div>
-    ${edit ? "" : `<label>Template<div class="ms-tpls">${Object.entries(TEMPLATES).map(([k, t]) => `<button type="button" data-tpl="${k}" aria-pressed="${k === template}">${t.label}</button>`).join("")}</div></label>
+    ${edit ? "" : `<div class="ms-tpl-l"><span>Template</span><div class="ms-tpls" id="ms-tpls"></div></div>
     <label id="ms-extra-l" hidden><span id="ms-extra-h"></span><textarea class="field" name="extra" id="ms-extra"></textarea></label>`}
     <label>Skip these days<div class="ap-days">${DAY_NAMES.map((d, i) => `<button type="button" data-day="${i}" aria-pressed="${blocked.includes(i)}">${d}</button>`).join("")}</div></label>
     ${edit ? `<p class="note" style="margin:0">Changing the due date or skipped days re-plans the unfinished steps.</p>` : `<label>Plan<div class="ms-preview" id="ms-preview"></div></label>`}
@@ -207,8 +236,29 @@ async function openSheet({ edit, prefill = {} } = {}) {
 
   const opts = () => {
     const extra = (f.querySelector("#ms-extra")?.value || "");
-    return template === "exam" ? { topics: extra.split(/[,\n]/) } : template === "custom" ? { lines: extra.split("\n") } : {};
+    const t = mineOf(template);
+    return t ? { steps: t.steps } : template === "exam" ? { topics: extra.split(/[,\n]/) } : template === "custom" ? { lines: extra.split("\n") } : {};
   };
+  // template picker: the built-in ones, then yours, then a button to make one
+  const drawTpls = () => {
+    const box = f.querySelector("#ms-tpls"); if (!box) return;
+    if (template.startsWith("u:") && !mineOf(template)) template = "project";
+    const btn = (k, label) => `<button type="button" data-tpl="${esc(k)}" aria-pressed="${k === template}">${esc(label)}</button>`;
+    box.innerHTML = Object.entries(TEMPLATES).filter(([k]) => k !== "custom").map(([k, t]) => btn(k, t.label)).join("")
+      + mine.map(t => btn(`u:${t.id}`, t.name)).join("")
+      + btn("custom", "Quick list")
+      + `<button type="button" class="ms-tpl-new" data-act="tpl-new">${svg("plus")}New template</button>`
+      + (mineOf(template) ? `<button type="button" class="ms-tpl-new" data-act="tpl-edit">${svg("pencilLine")}Edit “${esc(mineOf(template).name)}”</button>` : "");
+  };
+  const afterTpl = () => { drawTpls(); showExtra(); preview(); };
+  const creatorDone = async (pick) => { mine = await loadTemplates(); if (pick) template = pick; afterTpl(); };
+  f.querySelector("#ms-tpls")?.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.act === "tpl-new") return openCreator(root, { toast: ctx0.toast, onSave: t => creatorDone(`u:${t.id}`) });
+    if (b.dataset.act === "tpl-edit") return openCreator(root, { edit: mineOf(template), toast: ctx0.toast, onSave: () => creatorDone(), onDelete: () => creatorDone("project") });
+    if (b.dataset.tpl) { template = b.dataset.tpl; afterTpl(); }
+  });
+  drawTpls();
   const dueMs = () => f.due.value ? new Date(f.due.value).getTime() : null;
   const preview = () => {
     const box = f.querySelector("#ms-preview"); if (!box) return;
@@ -225,9 +275,6 @@ async function openSheet({ edit, prefill = {} } = {}) {
     f.querySelector("#ms-extra-h").textContent = template === "exam" ? "Topics on the exam (optional, comma separated)" : "Your steps (one per line)";
     f.querySelector("#ms-extra").placeholder = template === "exam" ? "recursion, linked lists, trees, big-O" : "Email the professor\nFirst draft\nFinal version";
   };
-  f.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => {
-    template = b.dataset.tpl; f.querySelectorAll("[data-tpl]").forEach(x => x.setAttribute("aria-pressed", x === b)); showExtra(); preview();
-  });
   f.querySelectorAll("[data-day]").forEach(b => b.onclick = () => {
     const d = +b.dataset.day; blocked = blocked.includes(d) ? blocked.filter(x => x !== d) : [...blocked, d];
     b.setAttribute("aria-pressed", blocked.includes(d)); preview();
@@ -242,6 +289,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
     const title = f.title.value.trim(), course = f.course.value.trim(), due = dueMs();
     if (!title || !due) return;
     if (edit) {
+      if (due !== edit.due && due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
       const changed = due !== edit.due || blocked.join() !== (edit.blockedDays || []).join();
       const steps = changed ? replan(edit.steps, Date.now(), due, blocked) : edit.steps;
       await save({ ...edit, title, course, due, blockedDays: blocked, steps });
@@ -251,7 +299,8 @@ async function openSheet({ edit, prefill = {} } = {}) {
     const steps = buildPlan(template, Date.now(), due, blocked, opts());
     if (!steps.length) { err.textContent = "Add at least one step."; return; }
     const id = "m-" + uid();
-    await save({ id, title, course, due, template, blockedDays: blocked, steps, deadlineKey: m.deadlineKey || "", created: Date.now() });
+    const own = mineOf(template);
+    await save({ id, title, course, due, template, ...(own ? { templateName: own.name } : {}), blockedDays: blocked, steps, deadlineKey: m.deadlineKey || "", created: Date.now() });
     close();
     go(id);
     ctx0.toast(`Planned ${steps.length} steps for “${title}”`);
@@ -323,13 +372,53 @@ async function mount(el, ctx) {
       await update(id, m => ({ ...m, steps: m.steps.filter(s => s.id !== sid) })); renderDetail(id);
     } else if (act === "date") {
       const btn = e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
-      const inp = document.createElement("input"); inp.type = "datetime-local"; inp.value = toLocalInput(s.date); inp.max = toLocalInput(raw.due);
+      const inp = document.createElement("input"); inp.type = "datetime-local"; inp.value = toLocalInput(s.date);
+      inp.min = toLocalInput(Math.min(Date.now(), s.date)); inp.max = toLocalInput(raw.due);
       btn.replaceWith(inp); inp.focus();
-      const done = async () => { const t = inp.value ? new Date(inp.value).getTime() : s.date; await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, date: Math.min(t, m.due) } : x) })); renderDetail(id); };
+      let saved = false;
+      const done = async () => {
+        if (saved) return; saved = true;
+        const t = inp.value ? new Date(inp.value).getTime() : s.date;
+        if (t !== s.date) await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, date: Math.min(t, m.due) } : x) }));
+        renderDetail(id);
+      };
       inp.addEventListener("change", done); inp.addEventListener("blur", done);
+    } else if (act === "rename") {
+      const btn = e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
+      const inp = document.createElement("input"); inp.className = "field ms-rename-in"; inp.value = s.title; inp.setAttribute("aria-label", "Step name");
+      btn.replaceWith(inp); inp.focus(); inp.select();
+      let saved = false;
+      const done = async keep => {
+        if (saved) return; saved = true;
+        const title = inp.value.trim();
+        if (keep && title && title !== s.title) await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, title } : x) }));
+        renderDetail(id);
+      };
+      inp.addEventListener("keydown", k => { if (k.key === "Enter") { k.preventDefault(); done(true); } else if (k.key === "Escape") done(false); });
+      inp.addEventListener("blur", () => done(true));
+    } else if (act === "est") {
+      const btn = e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
+      const cur = s.estMin || 45, opts = [...new Set([15, 30, 45, 60, 90, 120, 180, 240, cur])].sort((a, b) => a - b);
+      const sel = document.createElement("select"); sel.className = "field ms-est-in"; sel.setAttribute("aria-label", "How long it takes");
+      sel.innerHTML = opts.map(v => `<option value="${v}" ${v === cur ? "selected" : ""}>${fmtDur(v)}</option>`).join("");
+      btn.replaceWith(sel); sel.focus();
+      let saved = false;
+      const done = async () => {
+        if (saved) return; saved = true;
+        const v = +sel.value;
+        if (v !== cur) await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, estMin: v } : x) }));
+        renderDetail(id);
+      };
+      sel.addEventListener("change", done); sel.addEventListener("blur", done);
+    } else if (act === "finish") {
+      await update(id, m => ({ ...m, steps: m.steps.map(s => ({ ...s, done: true })) }));
+      ctx0.toast("Marked every step done."); renderDetail(id);
     } else if (act === "replan") {
       await update(id, m => ({ ...m, steps: replan(m.steps, Date.now(), m.due, m.blockedDays || DEFAULT_BLOCKED) }));
       ctx0.toast("Re-planned from today."); renderDetail(id);
+    } else if (act === "save-tpl") {
+      const raw = await store.get(APP, id);
+      openCreator(root, { prefill: { name: tplLabel(raw) === "Custom" ? raw.title : `My ${tplLabel(raw).toLowerCase()}`, steps: stepsFromPlan({ id, ...raw }) }, toast: ctx0.toast });
     } else if (act === "edit") {
       const raw = await store.get(APP, id); openSheet({ edit: { id, ...raw } });
     } else if (act === "del") {
@@ -346,12 +435,15 @@ async function mount(el, ctx) {
     e.preventDefault();
     const inp = e.target.querySelector("input"), title = inp.value.trim(); if (!title) return;
     const id = current;
+    let when = null;
     await update(id, m => {
       const d = new Date(m.due); d.setDate(d.getDate() - 1); d.setHours(20, 0, 0, 0);
       const date = Math.max(Math.min(+d, m.due - 3600e3), Date.now() + 30 * 60e3);
-      return { ...m, steps: [...m.steps, { id: "s" + uid(), title, date: Math.min(date, m.due), estMin: 45, done: false }] };
+      when = Math.min(date, m.due);
+      return { ...m, steps: [...m.steps, { id: "s" + uid(), title, date: when, estMin: 45, done: false }] };
     });
     renderDetail(id);
+    if (when) ctx0.toast(`Added for ${dueLabel(when)}. Tap its date to move it.`);
   });
   store.onChange(ch => { if (ch.app === APP && ctx0.isActive() && ch.source === "remote") (current ? renderDetail(current) : renderList()); });
 }
@@ -365,6 +457,8 @@ async function show(arg) {
     const did = q.get("deadline");
     let prefill = {};
     if (did) {
+      const have = await planFor(did);
+      if (have) { history.replaceState(null, "", `#${APP}/${have.id}`); ctx0.toast("You already have a plan for this deadline."); return renderDetail(have.id); }
       const d = await store.get("deadlines", did);
       if (d) prefill = { title: d.title, course: d.course || "", due: d.due && d.due > Date.now() ? d.due : null, template: guessTemplate(d.title), deadlineKey: `deadlines:${did}` };
     }

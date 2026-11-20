@@ -100,7 +100,7 @@ async function gather(now = Date.now()) {
   const late = items.filter(i => i.due < now);
   const week = items.filter(i => i.due >= now && i.due < end);
   let ms = []; try { ms = await loadMilestones(); } catch (e) { /* no Milestones */ }
-  const projects = ms.map(m => {
+  const projects = ms.filter(m => !m.deadlineDone).map(m => {
     const open = m.steps.filter(s => !s.done);
     return { m, behind: open.filter(s => s.date < now), thisWeek: open.filter(s => s.date >= now && s.date < end), next: open.sort((a, b) => a.date - b.date)[0] };
   }).filter(x => x.next && (x.behind.length || x.thisWeek.length || x.m.due < end)).sort((a, b) => b.behind.length - a.behind.length || a.m.due - b.m.due);

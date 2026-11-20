@@ -14,7 +14,7 @@ import * as store from "./store.js";
 import { loadLists, listOf } from "./lists.js";
 
 // the list for items from apps that don't name one (anything with a course is School)
-const APP_LIST = { events: "frat", wallet: "money", laundry: "personal", reset: "personal" };
+const APP_LIST = { wallet: "money", reset: "personal" };
 
 let cache = null;
 store.onChange(() => { cache = null; });

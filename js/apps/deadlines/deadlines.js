@@ -276,10 +276,12 @@ function openEdit(d) {
   if (del) del.onclick = async () => { close(); await store.remove(APP, d.id); ctx0.toast(`Deleted “${d.title}”`); render(); };
   // "Break it down" appears once the Milestones app exists
   const bd = f.querySelector('[data-act="breakdown"]');
-  if (bd) import("../index.js").then(m => {
+  if (bd) import("../index.js").then(async m => {
     if (!m.default.some(a => a.id === "milestones" && !a.hidden)) return;
+    const plan = await (await import("../milestones/milestones.js")).planFor(d.id);
+    if (plan) bd.lastChild.textContent = " Open its plan";
     bd.hidden = false;
-    bd.onclick = () => { close(); location.hash = `milestones/new?deadline=${encodeURIComponent(d.id)}`; };
+    bd.onclick = () => { close(); location.hash = plan ? `milestones/${encodeURIComponent(plan.id)}` : `milestones/new?deadline=${encodeURIComponent(d.id)}`; };
   }).catch(() => {});
   f.onsubmit = async e => {
     e.preventDefault();
