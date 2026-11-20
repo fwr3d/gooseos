@@ -662,4 +662,4 @@ async function show(arg) {
   await render();
 }
 
-export default { id: APP, name: "Code", icon: "code", color: ["#38bdf8", "#0369a1"], mount, show };
+export default { id: APP, name: "Code", icon: "code", tint: "gray", mount, show };

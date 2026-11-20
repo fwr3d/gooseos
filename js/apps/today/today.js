@@ -7,7 +7,7 @@
 //
 // summary() contract, for any app: -> { label, value, sub?, pct? (0-100), tone?: "good"|"warn"|"bad", open? } or null
 import * as store from "../../store.js";
-import { svg } from "../../icons.js";
+import { svg, tile } from "../../icons.js";
 import apps from "../index.js";
 import * as agenda from "../../agenda.js";
 import { status as classStatus, colorOf, fmtTime, inTime, meetingsOn } from "../schedule/schedule.js";
@@ -88,7 +88,7 @@ function itemRow(i, now) {
 
 function classBlock(g) {
   const { cls, now, evening } = g;
-  if (!cls.courses.length) return `<button class="ap-card ap-row" data-go="#schedule"><span class="tile-ic" style="background:#2348c9">${svg("calendar")}</span><span class="grow"><span class="t">Add your classes</span><span class="s">Then Today shows what's on now and next.</span></span>${svg("chevronRight")}</button>`;
+  if (!cls.courses.length) return `<button class="ap-card ap-row" data-go="#schedule"><span class="tile-ic" style="${tile("blue")}">${svg("calendar")}</span><span class="grow"><span class="t">Add your classes</span><span class="s">Then Today shows what's on now and next.</span></span>${svg("chevronRight")}</button>`;
   const rows = [];
   const row = (label, x, sub) => `<button class="ap-row" data-go="#schedule"><span class="sc-dot" style="background:${colorOf(x.course)}"></span><span class="grow"><span class="t">${esc(x.course.code)} <span class="td-kind">${esc(label)}</span></span><span class="s">${esc(sub)}</span></span></button>`;
   if (evening) {
@@ -109,7 +109,7 @@ function classBlock(g) {
 function sumCard(s) {
   const tone = s.tone ? ` ${s.tone}` : "";
   return `<button class="ap-card td-sum${tone}" data-go="${esc(s.open)}">
-    <span class="td-sum-k"><span class="tile-ic" style="background:linear-gradient(160deg,${s.app.color[0]},${s.app.color[1]})">${svg(s.app.icon)}</span>${esc(s.label)}</span>
+    <span class="td-sum-k"><span class="tile-ic" style="${tile(s.app.tint)}">${svg(s.app.icon)}</span>${esc(s.label)}</span>
     <span class="td-sum-v">${esc(s.value)}</span>
     ${typeof s.pct === "number" ? `<span class="ap-bar-meter"><i style="width:${Math.max(0, Math.min(100, s.pct))}%"></i></span>` : ""}
     ${s.sub ? `<span class="td-sum-s">${esc(s.sub)}</span>` : ""}
@@ -132,10 +132,10 @@ async function render() {
   parts.push(`<div class="td-lists" role="group" aria-label="Show list">${[{ id: "all", name: "All" }, ...g.lists].map(l =>
     `<button data-list="${esc(l.id)}" aria-pressed="${g.pick === l.id}">${l.color ? `<i style="background:${esc(l.color)}"></i>` : ""}${esc(l.name)}</button>`).join("")}</div>`);
 
-  if (g.missedList.length) parts.push(`<button class="ap-card ap-row td-missed" data-go="#reminders"><span class="tile-ic" style="background:#d23c41">${svg("bell")}</span><span class="grow"><span class="t">${g.missedList.length} reminder${g.missedList.length === 1 ? "" : "s"} came due while GooseOS was closed</span><span class="s">${esc(g.missedList.slice(0, 3).map(m => m.title).join(" · "))}</span></span>${svg("chevronRight")}</button>`);
+  if (g.missedList.length) parts.push(`<button class="ap-card ap-row td-missed" data-go="#reminders"><span class="tile-ic" style="${tile("warm")}">${svg("bell")}</span><span class="grow"><span class="t">${g.missedList.length} reminder${g.missedList.length === 1 ? "" : "s"} came due while GooseOS was closed</span><span class="s">${esc(g.missedList.slice(0, 3).map(m => m.title).join(" · "))}</span></span>${svg("chevronRight")}</button>`);
 
   const rs = g.reset;
-  if (rs.nudge) parts.push(`<button class="ap-card ap-row" data-go="#reset"><span class="tile-ic" style="background:linear-gradient(160deg,#38bdf8,#0369a1)">${svg("listChecks")}</span><span class="grow"><span class="t">Plan next week</span><span class="s">Five minutes: what's due, what's behind, your top 3.</span></span>${svg("chevronRight")}</button>`);
+  if (rs.nudge) parts.push(`<button class="ap-card ap-row" data-go="#reset"><span class="tile-ic" style="${tile("green")}">${svg("listChecks")}</span><span class="grow"><span class="t">Plan next week</span><span class="s">Five minutes: what's due, what's behind, your top 3.</span></span>${svg("chevronRight")}</button>`);
   if (rs.note) parts.push(`<div class="ap-card pad td-note"><span class="td-eyebrow">From Sunday you</span><span>${esc(rs.note)}</span></div>`);
   if (rs.pins.length) parts.push(`<section class="ap-sec"><h3>Must do this week<span class="n">${rs.pins.filter(p => p.done).length}/${rs.pins.length}</span></h3><div class="ap-card">${rs.pins.map(p => `<div class="ap-row ${p.done ? "done" : ""}">
       <button class="ap-check" data-act="pin" data-week="${rs.week}" data-pin="${esc(p.id)}" aria-label="${p.done ? "Done" : "Mark done"}">${svg("check")}</button>
@@ -238,4 +238,4 @@ async function widget(el) {
     <div class="w-td-foot">${classLine ? `<span>${svg("calendar")}${classLine}</span>` : ""}${g.sums.map(s => `<span>${svg(s.app.icon)}${esc(s.label)}: <b>${esc(s.value)}</b></span>`).join("")}</div>`;
 }
 
-export default { id: APP, name: "Today", icon: "sun", color: ["#ffc04d", "#ff9f1c"], wideWidget: true, topWidget: true, mount, show, hide, widget };
+export default { id: APP, name: "Today", icon: "sun", tint: "warm", wideWidget: true, topWidget: true, mount, show, hide, widget };

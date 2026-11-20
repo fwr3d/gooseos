@@ -3,7 +3,7 @@
 import apps from "./apps/index.js";
 import * as store from "./store.js";
 import * as sync from "./sync.js";
-import { svg } from "./icons.js";
+import { svg, tile } from "./icons.js";
 import * as capture from "./capture.js";
 import * as feed from "./feed.js";
 import * as files from "./files.js";
@@ -27,13 +27,13 @@ function toast(msg, action) {
 function tick() {
   const n = new Date();
   $("#time").textContent = n.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M$/i, "");
-  $("#date").textContent = n.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  $("#date").textContent = n.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
 /* ---------- system app: Settings ---------- */
-const SETTINGS = { id: "settings", name: "Settings", icon: "settings", color: ["#8e9aaf", "#5b667a"], dock: true, system: true };
+const SETTINGS = { id: "settings", name: "Settings", icon: "settings", tint: "gray", dock: true, system: true };
 const allIcons = () => [...apps, SETTINGS];
-const tileStyle = a => `background:linear-gradient(160deg,${a.color[0]},${a.color[1]})`;
+const tileStyle = a => tile(a.tint);
 
 /* ---------- home (layout lives in home.js) ---------- */
 let syncState = { status: "off" };
@@ -153,14 +153,14 @@ function drawSettings() {
   $("#sheet-title").textContent = "Settings";
   const s = syncState, signedIn = s.email && s.status !== "signed-out";
   const syncRow = s.status === "off"
-    ? `<div class="row"><span class="tile-ic" style="background:#8e9aaf">${svg("cloudOff")}</span><div class="grow"><div class="t">Sync is off</div><div class="s">Everything is saved on this device.</div></div></div>`
+    ? `<div class="row"><span class="tile-ic" style="${tile("gray")}">${svg("cloudOff")}</span><div class="grow"><div class="t">Sync is off</div><div class="s">Everything is saved on this device.</div></div></div>`
     : signedIn
-      ? `<div class="row"><span class="tile-ic" style="background:#22a45d">${svg("cloud")}</span><div class="grow"><div class="t">${esc(SYNC_TEXT[s.status])}</div><div class="s">${esc(s.email)}</div></div></div>
+      ? `<div class="row"><span class="tile-ic" style="${tile("green")}">${svg("cloud")}</span><div class="grow"><div class="t">${esc(SYNC_TEXT[s.status])}</div><div class="s">${esc(s.email)}</div></div></div>
          ${s.status === "error" ? `<div class="row"><div class="grow err">${esc(s.error || "Something went wrong.")}</div></div>` : ""}
-         <button class="row row-btn" id="st-sync"><span class="tile-ic" style="background:#2348c9">${svg("refreshCw")}</span><div class="grow t">Sync now</div></button>
-         <button class="row row-btn danger" id="st-out"><span class="tile-ic" style="background:#e5484d">${svg("logOut")}</span><div class="grow t">Sign out</div></button>`
-      : `<button class="row row-btn" id="st-in"><span class="tile-ic" style="background:#2348c9">${svg("cloud")}</span><div class="grow"><div class="t">Sign in to sync</div><div class="s">Keep your PC and iPhone in step.</div></div></button>`;
-  const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="background:#ff9f1c">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
+         <button class="row row-btn" id="st-sync"><span class="tile-ic" style="${tile("blue")}">${svg("refreshCw")}</span><div class="grow t">Sync now</div></button>
+         <button class="row row-btn danger" id="st-out"><span class="tile-ic" style="${tile("red")}">${svg("logOut")}</span><div class="grow t">Sign out</div></button>`
+      : `<button class="row row-btn" id="st-in"><span class="tile-ic" style="${tile("blue")}">${svg("cloud")}</span><div class="grow"><div class="t">Sign in to sync</div><div class="s">Keep your PC and iPhone in step.</div></div></button>`;
+  const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="${tile("warm")}">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
   $("#sheet-body").innerHTML = `
     <div class="group-h">Sync</div><div class="group">${syncRow}</div>
     <div id="st-home"></div>

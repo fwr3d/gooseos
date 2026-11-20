@@ -2,7 +2,7 @@
 .rm-perm{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))!important;background:color-mix(in srgb,var(--warn) 8%,var(--panel))!important}
 .rm-perm span{color:var(--muted);font-size:13.5px;line-height:1.5}
 .rm-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:360px}
-.rm-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.rm-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:var(--w-strong);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .rm-grid .field{padding:8px 10px;font-size:15px}
 .rm-toggle{display:flex;align-items:center;gap:8px;font-size:14px}
 .rm-toggle input{width:18px;height:18px;accent-color:var(--accent-strong)}
@@ -16,7 +16,7 @@
 
 /* nag by list */
 .rm-lists{display:flex;flex-direction:column;gap:6px;max-width:420px}
-.rm-lists-h{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.rm-lists-h{font-size:12px;font-weight:var(--w-strong);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .rm-lrow{display:grid;grid-template-columns:1fr 130px auto;gap:10px;align-items:center}
 .rm-lname{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500}
 .rm-lname i{width:9px;height:9px;border-radius:50%}
@@ -26,7 +26,7 @@
 
 /* snooze menu */
 #rm-body .ap-row{position:relative}
-.rm-snz{position:absolute;right:8px;top:calc(100% - 6px);z-index:5;display:flex;flex-direction:column;min-width:210px;padding:4px;border-radius:14px;background:var(--glass-strong);border:1px solid var(--glass-line);box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.rm-snz{position:absolute;right:8px;top:calc(100% - 6px);z-index:5;display:flex;flex-direction:column;min-width:210px;padding:4px;border-radius:var(--r-card);background:var(--panel);border:1px solid var(--line);box-shadow:var(--lift)}
 .rm-snz button{display:flex;justify-content:space-between;gap:12px;border:0;background:none;color:var(--ink);text-align:left;padding:9px 10px;border-radius:10px;font-size:14px;cursor:pointer}
 .rm-snz button span{color:var(--muted);font-size:12.5px}
 .rm-snz button:hover,.rm-snz button:focus-visible{background:var(--accent-soft);outline:none}

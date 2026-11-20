@@ -396,12 +396,12 @@ const MARKUP = () => `
   <div class="wb-stage draw" id="wb-stage">
     <canvas></canvas>
     <div class="wb-hint" id="wb-hint">Draw anything<small>Pinch or Ctrl + scroll to zoom · Space + drag to move</small></div>
-    <div class="wb-zoom glass">
+    <div class="wb-zoom surface">
       <button class="icon-btn" id="wb-zout" aria-label="Zoom out">${svg("minus")}</button><span id="wb-zlvl">100%</span><button class="icon-btn" id="wb-zin" aria-label="Zoom in">${svg("plus")}</button>
     </div>
     <div class="wb-dock">
-      <div class="wb-styles glass" id="wb-styles"></div>
-      <div class="wb-tools glass" id="wb-tools">${TOOLS.map(([id, label, ic]) => id === "sep" ? `<span class="wb-sep"></span>` :
+      <div class="wb-styles surface" id="wb-styles"></div>
+      <div class="wb-tools surface" id="wb-tools">${TOOLS.map(([id, label, ic]) => id === "sep" ? `<span class="wb-sep"></span>` :
         `<button class="wb-tool" data-tool="${id}" aria-label="${label}" title="${label}" aria-pressed="${id === tool}">${svg(ic)}</button>`).join("")}</div>
     </div>
   </div>`;
@@ -506,4 +506,4 @@ function timeAgo(t) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default { id: APP, name: "Whiteboard", icon: "presentation", color: ["#4f7cff", "#2348c9"], dock: true, mount, show, hide, widget };
+export default { id: APP, name: "Whiteboard", icon: "presentation", tint: "gray", dock: true, mount, show, hide, widget };

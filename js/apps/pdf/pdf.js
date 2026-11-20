@@ -412,4 +412,4 @@ async function show(arg) {
 }
 function hide() { if (saveT && fileId && marks) { clearTimeout(saveT); saveT = null; saveNow(); } }
 
-export default { id: APP, name: "PDF editor", icon: "filePen", color: ["#fb7185", "#be123c"], mount, show, hide };
+export default { id: APP, name: "PDF editor", icon: "filePen", tint: "red", mount, show, hide };

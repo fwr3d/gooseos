@@ -8,7 +8,7 @@
 //   Without one, it's School when there's a course and Personal when there isn't.
 // Settings live in app "deadlines-config", item "brightspace": { url, lastSync }.
 import * as store from "../../store.js";
-import { svg } from "../../icons.js";
+import { svg, tile } from "../../icons.js";
 import * as lists from "../../lists.js";
 import { parseCapture, dueLabel, toLocalInput } from "./parse.js";
 import { parseICS, eventsToDeadlines, idFor } from "./ics.js";
@@ -203,7 +203,7 @@ function tuckCard(on) { try { localStorage.setItem("dl-connect-tucked", on ? "1"
 
 function connectHtml() {
   return `<div class="dl-connect">
-    <span class="tile-ic" style="background:#2348c9">${svg("graduationCap")}</span>
+    <span class="tile-ic" style="${tile("blue")}">${svg("graduationCap")}</span>
     <div class="grow">
       <div class="t">Pull in Brightspace automatically</div>
       <div class="s">Brightspace gives every student a private calendar link with all their due dates. Paste it here once and GooseOS keeps your list updated.</div>
@@ -458,4 +458,4 @@ async function widget(el) {
   getConfig().then(cfg => { if (cfg.url && navigator.onLine && Date.now() - (cfg.lastSync || 0) > SYNC_EVERY) syncBrightspace().catch(() => {}); });
 }
 
-export default { id: APP, name: "Deadlines", icon: "calendarClock", color: ["#ff9f1c", "#e8590c"], dock: true, wideWidget: true, mount, show, badge, widget, agenda, complete };
+export default { id: APP, name: "Deadlines", icon: "calendarClock", tint: "red", dock: true, wideWidget: true, mount, show, badge, widget, agenda, complete };

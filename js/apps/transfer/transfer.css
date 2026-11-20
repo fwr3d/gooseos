@@ -4,7 +4,7 @@
 .tr-drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:28px 18px;border:2px dashed var(--line);cursor:pointer;transition:border-color .15s,background .15s}
 .tr-drop:hover,.tr-drop:focus-visible,.tr-over .tr-drop{border-color:var(--accent);background:var(--accent-soft);outline:none}
 .tr-drop span{color:var(--muted);font-size:13px}
-.tr-drop-ic{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(160deg,#a3e635,#4d7c0f);color:#fff}
+.tr-drop-ic{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:var(--tint-gray-bg);color:var(--tint-gray-fg)}
 .tr-drop-ic .ic{width:24px;height:24px}
 .tr-row.new{background:color-mix(in srgb,var(--good) 8%,transparent)}
 .tr-thumb{width:40px;height:40px;flex:none;border-radius:10px;background:var(--accent-soft);display:grid;place-items:center;overflow:hidden;color:var(--muted)}

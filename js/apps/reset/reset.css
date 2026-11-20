@@ -3,8 +3,8 @@
 .rs-steps i{flex:1;height:5px;border-radius:3px;background:var(--accent-soft)}
 .rs-steps i.past{background:color-mix(in srgb,var(--accent-strong) 45%,transparent)}
 .rs-steps i.cur{background:var(--accent-strong)}
-.rs-eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-.rs-h{margin:-6px 0 0;font-family:var(--f-clock);font-weight:800;font-size:clamp(24px,5vw,30px);letter-spacing:-.02em}
+.rs-eyebrow{font-size:12px;font-weight:var(--w-strong);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.rs-h{margin:-6px 0 0;font-family:var(--f-clock);font-weight:var(--w-strong);font-size:clamp(24px,5vw,30px);letter-spacing:-.02em}
 .rs-lead{margin:0;font-size:14.5px;line-height:1.45;color:var(--muted)}
 .rs-lead b{color:var(--ink)}
 .rs-hint{margin:0 4px;font-size:13px;color:var(--muted)}
@@ -21,14 +21,14 @@ a.ap-row.rs-link:hover{background:var(--accent-soft)}
 .rs-own .pill-btn{flex:none}
 .rs-note{resize:vertical;line-height:1.45}
 
-.rs-foot{position:sticky;bottom:0;display:flex;justify-content:space-between;gap:10px;padding:12px 0 calc(4px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--wall-base) 35%)}
+.rs-foot{position:sticky;bottom:0;display:flex;justify-content:space-between;gap:10px;padding:12px 0 calc(4px + env(safe-area-inset-bottom));background:var(--page);border-top:1px solid var(--line)}
 .rs-foot .pill-btn{min-width:110px;padding:11px 18px}
 
 .rs-intro{align-items:flex-start;max-width:520px;margin:12px auto;width:100%}
 .rs-intro h2{margin:0;font-size:21px}
-.rs-ic{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(160deg,#38bdf8,#0369a1);color:#fff}
+.rs-ic{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;background:var(--tint-green-bg);color:var(--tint-green-fg)}
 .rs-ic .ic{width:28px;height:28px}
 .rs-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
-.rs-head h1{margin:0;font-family:var(--f-clock);font-weight:800;font-size:clamp(24px,5vw,32px);letter-spacing:-.02em;line-height:1.05}
+.rs-head h1{margin:0;font-family:var(--f-clock);font-weight:var(--w-strong);font-size:clamp(24px,5vw,32px);letter-spacing:-.02em;line-height:1.05}
 .rs-quote{font-size:15px;line-height:1.45;border-left:3px solid var(--accent-strong)}
 .rs-intro .rs-hint{margin:0}

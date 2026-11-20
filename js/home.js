@@ -3,14 +3,14 @@
 // Your widget picks are saved as app "shell", item "home": { small: [a, b], wide }.
 import apps from "./apps/index.js";
 import * as store from "./store.js";
-import { svg } from "./icons.js";
+import { svg, tile } from "./icons.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const DOCK = ["today", "deadlines", "+", "whiteboard"];
 const DEFAULT = { small: ["due", "class"], wide: "week" };
 
-const tileStyle = a => `background:linear-gradient(160deg,${a.color[0]},${a.color[1]})`;
+const tileStyle = a => tile(a.tint);
 const app = id => apps.find(a => a.id === id && !a.hidden);
 const fmtTime = t => new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const dayName = t => new Date(t).toLocaleDateString(undefined, { weekday: "short" });
@@ -30,19 +30,18 @@ export const SMALL = {
     const late = items.filter(i => i.due < now).length, next = items.find(i => i.due >= now);
     el.classList.add("h-due");
     el.innerHTML = `<span class="h-k">Due next</span>
-      ${next ? `<span class="h-big">${left(next.due - now)}</span><span class="h-t">${esc(next.title)}</span><span class="h-s">${esc([next.course, dueText(next.due)].filter(Boolean).join(" · "))}</span>` : `<span class="h-big">—</span><span class="h-t">Nothing coming up</span>`}
-      ${late ? `<span class="h-late">+ ${late} overdue</span>` : next && next.course ? `<span class="h-s">${esc(next.course)}</span>` : ""}`;
+      ${next ? `<span class="h-big">${left(next.due - now)}</span><span class="h-t">${esc(next.title)}</span><span class="h-s">${esc([next.course, dueText(next.due)].filter(Boolean).join(" · "))}</span>` : `<span class="h-big">All clear</span><span class="h-t">Nothing due</span><span class="h-s">Add one with the + below</span>`}
+      ${late ? `<span class="h-late">${late} overdue</span>` : ""}`;
   } },
   class: { label: "Next class", open: "schedule", async render(el) {
     let st = null; try { st = await (await import("./apps/schedule/schedule.js")).status(); } catch (e) { /* no Schedule */ }
     const pick = st && (st.now || st.next || st.nextDay);
     el.classList.add("h-class");
     if (!pick) { el.innerHTML = `<span class="h-k">Classes</span><span class="h-t">${st && st.courses.length ? "No more classes this week" : "Add your classes in Schedule"}</span>`; return; }
-    const when = st.now === pick ? `Now · until ${fmtTime(pick.end)}` : st.next === pick ? `Today ${fmtTime(pick.start)}` : `${pick.inDays === 1 ? "Tomorrow" : dayName(pick.start)} ${fmtTime(pick.start)}`;
-    el.style.background = pick.course.color || "#2f5bea";
-    el.innerHTML = `<span class="h-k">${st.now === pick ? "In class" : "Next class"}</span><span class="h-name">${esc(pick.course.code)}</span>
-      ${pick.course.name ? `<span class="h-s">${esc(pick.course.name)}</span>` : ""}
-      <span class="h-when">${esc(when)}</span>${pick.meeting.room ? `<span class="h-s">${esc(pick.meeting.room)}</span>` : ""}`;
+    const big = st.now === pick ? "Now" : fmtTime(pick.start).replace(/\s?[AP]M$/i, "");
+    el.innerHTML = `<span class="h-k">${st.now === pick ? "In class" : "Next class"}</span><span class="h-big">${esc(big)}</span>
+      <span class="h-t"><i class="h-cdot" style="background:${esc(pick.course.color || "var(--accent)")}"></i>${esc(pick.course.code)}</span>
+      <span class="h-when">${esc([st.now === pick ? `until ${fmtTime(pick.end)}` : st.next === pick ? "Today" : pick.inDays === 1 ? "Tomorrow" : dayName(pick.start), pick.meeting.room].filter(Boolean).join(" · ") || pick.course.name || "")}</span>`;
   } },
   milestone: { label: "Milestone", open: "milestones", async render(el) {
     let ms = []; try { ms = await (await import("./apps/milestones/milestones.js")).loadMilestones(); } catch (e) { /* none */ }
@@ -77,7 +76,7 @@ export const WIDE = {
     const count = d => items.filter(i => i.due >= +d && i.due < +d + 864e5).length;
     const total = days.reduce((n, d) => n + count(d), 0);
     el.innerHTML = `<span class="h-k">This week · ${total} due${late ? ` · <b class="h-late-k">${late} overdue</b>` : ""}</span>
-      <div class="h-week">${days.map((d, i) => { const n = count(d); return `<div class="h-day ${i === 0 ? "today" : ""}"><span>${d.toLocaleDateString(undefined, { weekday: "short" })}</span><b class="${n >= 2 ? "busy" : n ? "some" : "none"}">${n}</b></div>`; }).join("")}</div>`;
+      <div class="h-week">${days.map((d, i) => { const n = count(d); return `<div class="h-day ${i === 0 ? "today" : n >= 3 ? "busy" : ""}"><span>${d.toLocaleDateString(undefined, { weekday: "short" })}</span><i></i><b class="${n ? "" : "none"}">${n}</b></div>`; }).join("")}</div>`;
   } },
   today: { label: "Today (full)", open: "today", async render(el) { const a = app("today"); if (a && a.widget) await a.widget(el, { store, svg }); } },
   deadlines: { label: "Deadlines list", open: "deadlines", async render(el) { const a = app("deadlines"); if (a && a.widget) await a.widget(el, { store, svg }); } },
@@ -102,8 +101,12 @@ async function iconHtml(a, { label = true } = {}) {
 }
 
 /** Draw the whole home screen. ctx: { settingsApp, syncState, syncText, syncDot } */
+let homeRun = 0;
 export async function renderHome(ctx) {
+  // two redraws can overlap (sync and a local change at once); only the newest one keeps drawing
+  const run = ++homeRun, stale = () => run !== homeRun;
   const prefs = await loadPrefs();
+  if (stale()) return;
   const all = [...apps.filter(a => !a.hidden), ctx.settingsApp];
 
   // apps grid: everything, in list order, Settings last
@@ -114,10 +117,13 @@ export async function renderHome(ctx) {
     ? `<button class="app-ic dock-add" data-quick aria-label="Quick add a deadline"><span class="sq">${svg("plus")}</span></button>`
     : (app(id) ? iconHtml(app(id), { label: false }) : "")))).join("");
 
+  if (stale()) return;
+
   // small widgets
   const small = $("#small-widgets");
   small.innerHTML = "";
   for (const key of prefs.small) {
+    if (stale()) return;
     const w = SMALL[key]; if (!w) continue;
     const el = document.createElement("button");
     el.className = "widget h-small"; if (w.open) el.dataset.open = w.open; el.setAttribute("aria-label", w.label);
@@ -125,6 +131,7 @@ export async function renderHome(ctx) {
     try { await w.render(el, ctx); } catch (e) { console.error(e); }
   }
 
+  if (stale()) return;
   // wide widget
   const wide = $("#wide-widget"), w = WIDE[prefs.wide];
   wide.hidden = prefs.wide === "none";

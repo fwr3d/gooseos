@@ -1,6 +1,6 @@
 /* Today */
 .td-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
-.td-head h1{font-family:var(--f-clock);font-weight:800;font-size:clamp(26px,5vw,34px);letter-spacing:-.02em;line-height:1.05}
+.td-head h1{font-family:var(--f-clock);font-weight:600;font-size:clamp(26px,5vw,34px);letter-spacing:-.02em;line-height:1.05}
 .td-eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px}
 .td-head .pill-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 14px}
 .td-head .pill-btn .ic{width:16px;height:16px}
@@ -16,7 +16,7 @@
 .td-sum-k{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .td-sum-k .tile-ic{width:22px;height:22px;border-radius:6px}
 .td-sum-k .tile-ic .ic{width:13px;height:13px}
-.td-sum-v{font-family:var(--f-clock);font-weight:800;font-size:24px;letter-spacing:-.02em}
+.td-sum-v{font-family:var(--f-clock);font-weight:600;font-size:24px;letter-spacing:-.02em}
 .td-sum-s{font-size:12.5px;color:var(--muted)}
 .td-sum.good .ap-bar-meter i{background:var(--good)} .td-sum.warn .ap-bar-meter i{background:var(--warn)} .td-sum.bad .ap-bar-meter i{background:var(--bad)}
 .td-sum.bad .td-sum-v{color:var(--bad)}

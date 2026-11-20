@@ -141,39 +141,42 @@ async function renderDetail(id) {
   ws = { id, m, att, docs };
   const onStep = sid => att.filter(f => f.owner === ownerOf(id, sid));
   const docsOn = sid => docs.filter(d => d.owner === ownerOf(id, sid));
-  const chip = f => `<button class="ms-att" data-act="file" data-fid="${esc(f.id)}" title="Open ${esc(f.name)}">${svg("paperclip")}${esc(f.name)}</button>`;
-  const dchip = d => `<button class="ms-att" data-act="pick-doc" data-did="${esc(d.id)}" title="Show ${esc(d.title)}">${svg(DOC_ICON[d.kind] || "filePen")}${esc(d.title)}</button>`;
   $("#ms-main").classList.add("wide");
   $("#ms-main").innerHTML = `
     <div class="ms-head">
-      <h1>${esc(m.title)}</h1>
-      <div class="ms-sub">${m.course ? `<span class="chip course" style="background:${courseColor(m.course)}">${esc(m.course)}</span>` : ""}<span>${esc(tplLabel(m))}</span><span>·</span><span>Due ${esc(dueLabel(m.due))}</span>${linked ? `<span>·</span><a class="link-btn" style="padding:0" href="#deadlines/${esc(m.deadlineKey.replace(/^deadlines:/, ""))}">Linked deadline</a>` : ""}</div>
-      <div class="ms-meter"><div class="ap-bar-meter"><i style="width:${p.pct}%;background:${p.d === p.n ? "var(--good)" : "var(--accent)"}"></i></div><span>${p.d}/${p.n} steps</span></div>
-      <div class="ms-actions">
-        <button class="pill-btn secondary" data-act="replan" title="Spread the unfinished steps from today to the due date">${svg("refreshCw")}Re-plan</button>
-        <button class="pill-btn secondary" data-act="edit">${svg("pencilLine")}Edit</button>
-        <button class="pill-btn secondary" data-act="save-tpl" title="Reuse these steps for the next one">${svg("copy")}Save as template</button>
-        <span id="ms-del-wrap"><button class="pill-btn secondary" data-act="del" style="color:var(--bad)">${svg("trash2")}Delete</button></span>
+      <div class="ms-htop">
+        <div class="ms-htitle">
+          <div class="ms-meta">${m.course ? `<i class="h-cdot" style="background:${courseColor(m.course)}"></i>${esc(m.course)} · ` : ""}${esc(tplLabel(m))} · due ${esc(dueLabel(m.due))}${linked ? ` · <a class="link-btn" style="padding:0;font-size:inherit;font-weight:400" href="#deadlines/${esc(m.deadlineKey.replace(/^deadlines:/, ""))}">Linked deadline</a>` : ""}</div>
+          <h1>${esc(m.title)}</h1>
+        </div>
+        <div class="ms-actions">
+          <button class="ms-ob" data-act="replan" title="Spread the unfinished steps from today to the due date">${svg("refreshCw")}Re-plan</button>
+          <button class="ms-ob" data-act="edit">${svg("pencilLine")}Edit</button>
+          <button class="ms-ob" data-act="save-tpl" title="Reuse these steps for the next one">${svg("copy")}Save as template</button>
+          <span id="ms-del-wrap"><button class="ms-ob danger" data-act="del">${svg("trash2")}Delete</button></span>
+        </div>
       </div>
+      <div class="ms-meter"><div class="ap-bar-meter"><i style="width:${p.pct}%;background:${p.d === p.n ? "var(--tint-green-fg)" : "var(--tint-blue-fg)"}"></i></div><span>${p.d} of ${p.n} steps</span></div>
     </div>
     ${m.deadlineDone && p.d < p.n ? `<div class="ap-card ap-row"><span class="grow"><span class="t">You checked off the deadline</span><span class="s">The steps left won't remind you anymore.</span></span><button class="pill-btn secondary" data-act="finish">Mark all done</button></div>` : ""}
     <div class="ms-cols"><div class="ms-left">
+    <div class="ms-lab">Steps</div>
     <div class="ap-card" id="ms-steps">
       ${[...m.steps].sort((a, b) => a.date - b.date).map(s => {
         const late = !s.done && s.date < now;
         const ask = s.kind === "quiz" && s.done && !s.rating;
-        const rated = s.rating ? `<span class="ap-pill ${s.rating === "good" ? "good" : "warn"}">${s.rating === "good" ? "Got it" : "Shaky"}</span>` : "";
+        const rated = s.rating ? `<span class="ms-tag ${s.rating === "good" ? "green" : "warm"}">${s.rating === "good" ? "got it" : "shaky"}</span>` : "";
+        const nAtt = onStep(s.id).length + docsOn(s.id).length;
         return `<div class="ap-row ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${s.id === sel ? "sel" : ""}" data-sid="${s.id}">
           <button class="ap-check" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
-          <div class="grow"><button class="t link-btn ms-rename" data-act="rename" title="Rename step">${esc(s.title)}</button><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:500;color:${late ? "var(--bad)" : "var(--muted)"};font-size:12.5px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button>
-            ${onStep(s.id).length || docsOn(s.id).length ? `<span class="ms-atts">${docsOn(s.id).map(dchip).join("")}${onStep(s.id).map(chip).join("")}</span>` : ""}
+          <div class="grow"><button class="t link-btn ms-rename" data-act="rename" title="Rename step">${esc(s.title)}</button><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:400;color:${late ? "var(--tint-red-fg)" : "var(--muted)"};font-size:12px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button><span class="ms-dot">·</span><button class="est link-btn" data-act="est" title="How long it takes">${fmtDur(s.estMin || 45)}</button>
             ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
           ${rated}
-          <button class="est link-btn" data-act="est" title="How long it takes">${fmtDur(s.estMin || 45)}</button>
+          ${nAtt ? `<span class="ms-hasatt" title="${nAtt} in its workspace">${svg("paperclip")}${nAtt > 1 ? nAtt : ""}</span>` : ""}
           <button class="icon-btn ms-del" data-act="rmstep" aria-label="Remove step">${svg("x")}</button>
         </div>`;
       }).join("")}
-      <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="pill-btn" type="submit">Add</button></form>
+      <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="ms-ob sm" type="submit">Add</button></form>
     </div>
     <p class="ap-hint">Tap a step to open its workspace, or its date to move it. Re-plan spreads the unfinished steps from today to the due date and never past it.</p>
     </div><aside class="ms-ws" id="ms-ws" aria-label="Workspace"></aside></div>`;
@@ -184,7 +187,16 @@ async function renderDetail(id) {
 let sel = null;       // selected step id, or null for the whole project
 let openDoc = null;   // doc shown expanded
 let ws = null;        // what the last renderDetail loaded: { id, m, att, docs }
-const DOC_ICON = { note: "filePen", guide: "fileText", questions: "listChecks" };
+const DOC_ICON = { note: "filePen", guide: "notebook", questions: "circleHelp" };
+const DOC_KIND = { note: { tint: "gray", tag: "note" }, guide: { tint: "blue", tag: "guide" }, questions: { tint: "violet", tag: "questions" } };
+/** "today", "yesterday", "Mon", or "Nov 3". */
+function ago(t) {
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const days = Math.round((+d0 - new Date(t).setHours(0, 0, 0, 0)) / 864e5);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return new Date(t).toLocaleDateString(undefined, days < 7 ? { weekday: "short" } : { month: "short", day: "numeric" });
+}
 
 function drawWorkspace() {
   const box = $("#ms-ws"); if (!box || !ws) return;
@@ -197,39 +209,42 @@ function drawWorkspace() {
   const also = step ? [...docs.filter(d => !stepOf(d.owner)).map(d => d.title), ...att.filter(f => !stepOf(f.owner)).map(f => f.name)] : [];
   const steps = [...m.steps].sort((a, b) => a.date - b.date);
   const docRow = d => {
-    const open = d.id === openDoc;
+    const open = d.id === openDoc, kind = DOC_KIND[d.kind] || DOC_KIND.note;
     return `<div class="ws-doc ${open ? "open" : ""}" data-did="${esc(d.id)}">
-      <button class="ap-row ws-drow" data-act="ws-open" aria-expanded="${open}"><span class="ms-fic">${svg(DOC_ICON[d.kind] || "filePen")}</span>
-        <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">Edited ${esc(dueLabel(d.updated || d.created))}</span></span>
-        <span class="ap-pill">${esc(KINDS[d.kind] || "Note")}</span>${svg("chevronDown", "ws-chev")}</button>
+      <button class="ws-row ws-drow" data-act="ws-open" aria-expanded="${open}"><span class="ws-ic" style="color:var(--tint-${kind.tint}-fg)">${svg(DOC_ICON[d.kind] || "filePen")}</span>
+        <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">${esc(KINDS[d.kind] || "Note")} · edited ${esc(ago(d.updated || d.created))}</span></span>
+        <span class="ms-tag ${kind.tint}">${kind.tag}</span></button>
       ${open ? `<div class="ws-prev"><div class="ws-md">${renderMd(d.body) || `<p class="ws-muted">Nothing written yet.</p>`}</div>
-        <div class="ws-pacts"><button class="pill-btn secondary" data-act="ws-edit">${svg("pencilLine")}Edit</button><button class="pill-btn secondary" data-act="ws-copydoc">${svg("copy")}Copy text</button></div></div>` : ""}
+        <div class="ws-pacts"><button class="link-btn" data-act="ws-edit">Edit</button><button class="link-btn" data-act="ws-copydoc">Copy text</button></div></div>` : ""}
     </div>`;
   };
-  const fileRow = f => `<div class="ap-row ms-frow" data-fid="${esc(f.id)}">
-      <span class="ms-fic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
+  const fileRow = f => `<div class="ws-row ms-frow" data-fid="${esc(f.id)}">
+      <span class="ws-ic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
       <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), f.uploaded ? "" : "uploading…"].filter(Boolean).join(" · "))}</span></button>
       <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
         <option value="">Whole project</option>
         ${steps.map(s => `<option value="${esc(s.id)}" ${f.owner === ownerOf(id, s.id) ? "selected" : ""}>Step: ${esc(s.title)}</option>`).join("")}
       </select>
-      <button class="icon-btn" data-act="fdel" aria-label="Remove ${esc(f.name)}">${svg("x")}</button>
+      <button class="icon-btn ms-frm" data-act="fdel" aria-label="Remove ${esc(f.name)}">${svg("x")}</button>
     </div>`;
+  const days = Math.max(0, Math.ceil((m.due - Date.now()) / 864e5));
+  const promptSub = [m.course, step ? step.topic || step.title : m.title, step && step.rating === "shaky" ? "shaky" : "",
+    `${m.template === "exam" ? "exam" : "due"} ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`].filter(Boolean).join(" · ");
   box.innerHTML = `
     <div class="ws-head">
-      <h3>Workspace<span> · ${esc(step ? step.title : "Whole project")}</span></h3>
+      <span class="ms-lab">Workspace · ${esc(step ? step.title : "Whole project")}</span>
       <span class="ws-btns">${step ? `<button class="link-btn ws-allbtn" data-act="ws-all">Whole project</button>` : ""}
-        <button class="pill-btn secondary" data-act="ws-note">${svg("plus")}Note</button>
-        <label class="pill-btn secondary ws-file" tabindex="0">${svg("paperclip")}File<input type="file" id="ms-fpick" multiple hidden></label></span>
+        <button class="ms-ob sm" data-act="ws-note">${svg("plus")}Note</button>
+        <label class="ms-ob sm ws-file" tabindex="0">${svg("paperclip")}File<input type="file" id="ms-fpick" multiple hidden></label></span>
     </div>
     <div class="ws-prompt">
       <span class="ws-pic">${svg("sparkles")}</span>
-      <span class="grow"><b>Study with your AI</b><span>Copy a prompt, paste it into any AI chat, then paste the answer back here as a note.</span></span>
+      <span class="grow"><b>Study prompt</b><span>${esc(promptSub)}</span></span>
       <span class="ws-pgo"><select class="field" id="ws-pk" aria-label="What the prompt asks for">
         <option value="guide">${m.template === "exam" ? "Study guide" : "Explain this"}</option><option value="questions">Practice questions</option></select>
-      <button class="pill-btn" data-act="ws-copy">${svg("copy")}Copy prompt</button></span>
+      <button class="ms-ob sm" data-act="ws-copy">${svg("copy")}Copy prompt</button></span>
     </div>
-    <div class="ap-card ws-list">
+    <div class="ws-list">
       ${myDocs.map(docRow).join("")}${myFiles.map(fileRow).join("")}
       ${myDocs.length || myFiles.length ? "" : `<div class="ws-empty">${step ? "Nothing on this step yet." : "Nothing here yet."} Add a note, or attach the spec, rubric or your drafts.${step ? "" : " A rubric goes on the submit step by itself."}</div>`}
     </div>
@@ -591,4 +606,4 @@ async function show(arg) {
   return renderList();
 }
 
-export default { id: APP, name: "Milestones", icon: "milestone", color: ["#a78bfa", "#7c3aed"], mount, show, agenda, complete };
+export default { id: APP, name: "Milestones", icon: "milestone", tint: "blue", mount, show, agenda, complete };

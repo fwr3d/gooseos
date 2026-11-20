@@ -138,4 +138,4 @@ async function badge() {
   return n || "";
 }
 
-export default { id: APP, name: "Transfer", icon: "arrowLeftRight", color: ["#a3e635", "#4d7c0f"], mount, show, hide, badge };
+export default { id: APP, name: "Transfer", icon: "arrowLeftRight", tint: "gray", mount, show, hide, badge };

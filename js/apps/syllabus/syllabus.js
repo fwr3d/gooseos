@@ -3,7 +3,7 @@
 // go to Schedule's semester breaks, and grading weights go on the course.
 // Everything runs on the device.
 import * as store from "../../store.js";
-import { svg } from "../../icons.js";
+import { svg, tile } from "../../icons.js";
 import { toLocalInput } from "../deadlines/parse.js";
 import { loadDeadlines, knownCourses, courseColor } from "../deadlines/deadlines.js";
 import { scanSyllabus, similar, ymd } from "./scan.js";
@@ -32,7 +32,7 @@ async function renderStart() {
   $("#sy-main").innerHTML = `
     <div class="ap-card pad">
       <div style="display:flex;gap:12px;align-items:flex-start">
-        <span class="tile-ic" style="background:#0e9fb0;width:36px;height:36px;border-radius:10px">${svg("scanText")}</span>
+        <span class="tile-ic" style="${tile("violet")};width:36px;height:36px;border-radius:10px">${svg("scanText")}</span>
         <div><div style="font-weight:700">Turn a syllabus into deadlines</div>
         <div class="ap-hint" style="padding:0;margin-top:2px">Paste the schedule part of a syllabus or drop in its PDF. You'll check everything before it's added. Nothing leaves your device.</div></div>
       </div>
@@ -244,4 +244,4 @@ async function mount(el, ctx) {
 
 function show() { if (!state.result && root && !$("#sy-text")) renderStart(); }
 
-export default { id: APP, name: "Syllabus", icon: "scanText", color: ["#22c3d6", "#0e8a9a"], mount, show };
+export default { id: APP, name: "Syllabus", icon: "scanText", tint: "violet", mount, show };

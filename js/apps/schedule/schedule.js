@@ -7,7 +7,7 @@
 //     days use M T W R F S U  (R = Thursday, U = Sunday)
 //   app "schedule", item "semester": { start, end (ms), breaks: [{ id, label, from, to }] }
 import * as store from "../../store.js";
-import { svg } from "../../icons.js";
+import { svg, tile } from "../../icons.js";
 import { courseColor } from "../deadlines/deadlines.js";
 
 const APP = "schedule";
@@ -237,7 +237,7 @@ async function render() {
 
   $("#sc-main").innerHTML = main;
   $("#sc-courses").innerHTML = courses.length ? `<section class="ap-sec"><h3>Courses<span class="n">${courses.length}</span></h3><div class="ap-card">${courseRows}</div></section>` : "";
-  $("#sc-sem").innerHTML = `<section class="ap-sec"><h3>Semester</h3><button class="ap-card ap-row" id="sc-sem-edit" style="border:1px solid var(--line)"><span class="tile-ic" style="background:#2348c9">${svg("calendar")}</span><span class="grow"><span class="t">${sem.start && sem.end ? "Semester dates" : "Set semester dates"}</span><span class="s" style="white-space:normal">${esc(semText)}</span></span>${svg("pencil")}</button></section>`;
+  $("#sc-sem").innerHTML = `<section class="ap-sec"><h3>Semester</h3><button class="ap-card ap-row" id="sc-sem-edit" style="border:1px solid var(--line)"><span class="tile-ic" style="${tile("blue")}">${svg("calendar")}</span><span class="grow"><span class="t">${sem.start && sem.end ? "Semester dates" : "Set semester dates"}</span><span class="s" style="white-space:normal">${esc(semText)}</span></span>${svg("pencil")}</button></section>`;
   $("#sc-sem-edit").onclick = () => openSemester(sem);
 }
 
@@ -437,4 +437,4 @@ async function widget(el) {
   el.innerHTML = k + `<div class="w-sc-list">${body}</div>`;
 }
 
-export default { id: APP, name: "Schedule", icon: "calendar", color: ["#4f7bff", "#2348c9"], mount, show, hide, widget };
+export default { id: APP, name: "Schedule", icon: "calendar", tint: "blue", mount, show, hide, widget };

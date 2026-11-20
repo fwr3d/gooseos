@@ -424,4 +424,4 @@ async function show(arg) {
 
 // exported for tests
 export { grade, letterOf, drops, DEFAULT_CUTOFFS };
-export default { id: APP, name: "Grades", icon: "calculator", color: ["#f472b6", "#be185d"], mount, show, summary };
+export default { id: APP, name: "Grades", icon: "calculator", tint: "violet", mount, show, summary };

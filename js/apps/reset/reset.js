@@ -270,4 +270,4 @@ async function show(arg) {
   await render();
 }
 
-export default { id: APP, name: "Weekly Reset", icon: "listChecks", color: ["#38bdf8", "#0369a1"], mount, show, badge, agenda: agendaItems, complete() {} };
+export default { id: APP, name: "Weekly Reset", icon: "listChecks", tint: "green", mount, show, badge, agenda: agendaItems, complete() {} };

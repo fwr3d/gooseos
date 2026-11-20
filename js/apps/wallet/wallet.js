@@ -11,7 +11,7 @@
 // A month runs from payday to the day before the next payday, even if the
 // deposit lands a few days late. Leftover money does not roll over.
 import * as store from "../../store.js";
-import { svg } from "../../icons.js";
+import { svg, tile } from "../../icons.js";
 
 const APP = "wallet", D = 864e5;
 const CATS = {
@@ -405,7 +405,7 @@ function renderRecap(st) {
     <section class="ap-sec"><h3>Top places</h3>
       <div class="ap-card">${top.length ? top.map((p, i) => `<div class="ap-row"><span class="wl-rank">${i + 1}</span><span class="grow"><span class="t">${esc(p.name)}</span><span class="s">${p.n} time${p.n === 1 ? "" : "s"}</span></span><b class="wl-amt">${money(p.cents)}</b></div>`).join("") : `<div class="ap-empty">Nothing logged this month yet.</div>`}</div>
     </section>
-    ${cur && new Date().getDay() === 0 ? `<a class="ap-card ap-row wl-next" href="#reset"><span class="tile-ic" style="background:linear-gradient(160deg,#38bdf8,#0369a1)">${svg("listChecks")}</span><span class="grow"><span class="t">Now plan the week</span><span class="s">Weekly Reset: what's due, what's behind, your top 3.</span></span>${svg("chevronRight")}</a>` : ""}`;
+    ${cur && new Date().getDay() === 0 ? `<a class="ap-card ap-row wl-next" href="#reset"><span class="tile-ic" style="${tile("green")}">${svg("listChecks")}</span><span class="grow"><span class="t">Now plan the week</span><span class="s">Weekly Reset: what's due, what's behind, your top 3.</span></span>${svg("chevronRight")}</a>` : ""}`;
   $("#wl-prev").onclick = () => { if (canBack) { recapMonth++; render(); } };
   $("#wl-next").onclick = () => { if (recapMonth > 0) { recapMonth--; render(); } };
 }
@@ -461,4 +461,4 @@ async function show(arg) {
 
 // exported for tests
 export { periodOf, status, parseQuick, guessCat };
-export default { id: APP, name: "Wallet", icon: "wallet", color: ["#34d399", "#059669"], mount, show, widget, summary, agenda, complete() {} };
+export default { id: APP, name: "Wallet", icon: "wallet", tint: "green", mount, show, widget, summary, agenda, complete() {} };

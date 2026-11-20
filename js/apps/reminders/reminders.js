@@ -382,4 +382,4 @@ async function badge() {
   return n || "";
 }
 
-export default { id: APP, name: "Reminders", icon: "bell", color: ["#ff6b6e", "#d23c41"], mount, show: render, badge, start };
+export default { id: APP, name: "Reminders", icon: "bell", tint: "warm", mount, show: render, badge, start };
