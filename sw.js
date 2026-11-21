@@ -29,6 +29,8 @@ const FILES = [
   "js/lists.js",
   "js/latest.js",
   "js/files.js",
+  "js/notes-panel.js",
+  "js/notes-panel.css",
   "js/viewer.js",
   "js/apps/transfer/transfer.js",
   "js/apps/transfer/transfer.css",

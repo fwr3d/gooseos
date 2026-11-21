@@ -4,7 +4,9 @@
 // The PDF itself is a file from js/files.js (Transfer, a milestone, or added here
 // with scope "pdf"). Your marks are saved separately, so the original never changes
 // and you can come back and keep going:
-//   app "pdf", id <file id>: { pages: { "<n>": { strokes: [...], texts: [...] } }, updated }
+//   app "pdf", id <file id>: { pages: { "<n>": { strokes: [...], texts: [...] } }, updated, doc?, ref? }
+//     doc, ref: the notes panel's doc and whether it's open (js/notes-panel.js)
+//     deadline: the deadline id (store app "deadlines") this PDF gets turned in for
 //     stroke: { t: "pen" | "hl", c: color, w: width (pt), p: [x, y, x, y, ...] (pt from the top left) }
 //     text:   { id, x, y (pt, top left), s: size (pt), c: color, v: text }
 // "Save as PDF" draws each page and your marks into an image and builds a new PDF (makepdf.js).
@@ -12,6 +14,7 @@ import * as store from "../../store.js";
 import * as files from "../../files.js";
 import { svg } from "../../icons.js";
 import { makePdf } from "./makepdf.js";
+import { notesPanel, notesButton } from "../../notes-panel.js";
 
 const APP = "pdf";
 const COLORS = ["#111827", "#2f5bea", "#e5484d", "#22a45d"];
@@ -31,7 +34,7 @@ function pdfjs() {
 /* ---------- state for the open document ---------- */
 let ctx0, root, $ = s => root.querySelector(s);
 let task = null, doc = null, fileId = null, meta = null, marks = null, pages = [];   // pages: [{ n, vp (scale 1), wrap, pdfC, inkC, texts, rendered }]
-let zoom = 1, tool = "pen", color = COLORS[0], undo = [], saveT = null, observer = null, loadToken = 0;
+let zoom = 1, tool = "pen", color = COLORS[0], undo = [], saveT = null, observer = null, loadToken = 0, notes = null;
 const isTouch = matchMedia("(pointer: coarse)").matches;
 
 const pageData = n => (marks.pages[n] ||= { strokes: [], texts: [] });
@@ -44,7 +47,11 @@ function savable() {
   for (const [n, d] of Object.entries(marks.pages)) out[n] = { strokes: d.strokes, texts: d.texts.filter(t => t.v.trim() || t.id === typing) };
   return out;
 }
-function saveNow() { if (fileId && marks) store.put(APP, fileId, { pages: savable(), updated: Date.now() }); }
+function saveNow() {
+  if (!fileId || !marks) return;
+  const extra = {}; for (const k of ["doc", "ref", "deadline"]) if (marks[k]) extra[k] = marks[k];
+  return store.put(APP, fileId, { pages: savable(), updated: Date.now(), ...extra });
+}
 function persist() { clearTimeout(saveT); saveT = setTimeout(saveNow, 700); }
 
 /* ---------- list of PDFs ---------- */
@@ -52,6 +59,7 @@ async function renderList() {
   cleanup();
   $("#pf-title").textContent = "PDF editor";
   $("#pf-tools").hidden = true; $("#pf-back").hidden = true; root.querySelector("[data-home]").hidden = false;
+  notes.paint();
   const all = (await files.list()).filter(files.isPdf);
   const marked = new Set((await store.list(APP)).filter(r => r.data && r.data.pages && Object.values(r.data.pages).some(p => p.strokes.length || p.texts.length)).map(r => r.id));
   const where = f => f.scope === "transfer" ? "Transfer" : f.scope === "milestone" ? "Milestones" : "Added here";
@@ -89,7 +97,8 @@ async function openDoc(id) {
   catch (e) { $("#pf-main").innerHTML = `<div class="ap-body"><div class="ap-card"><div class="ap-empty"><b>Couldn't read this PDF</b>It might be damaged or password protected.</div></div></div>`; return; }
   if (token !== loadToken) return;
   const saved = await store.get(APP, id);
-  marks = { pages: (saved && saved.pages) || {} };
+  marks = { pages: (saved && saved.pages) || {}, doc: saved && saved.doc, ref: !!(saved && saved.ref), deadline: saved && saved.deadline };
+  notes.paint();
   undo = []; updateUndo();
   $("#pf-tools").hidden = false;
   $("#pf-main").innerHTML = `<div class="pf-pages" id="pf-pages"></div>`;
@@ -304,13 +313,16 @@ function exportSheet(blob, name) {
     <button class="pill-btn" data-x="dl">${svg("download")} Download</button>
     <button class="pill-btn secondary" data-x="send">${svg("arrowLeftRight")} Send to my other devices</button>
     ${forMs ? `<button class="pill-btn secondary" data-x="attach">${svg("paperclip")} Attach to the same milestone</button>` : ""}
+    <div class="pf-turnin" id="pf-turnin"></div>
     <div class="acts"><span></span><button class="pill-btn secondary" data-x="close">Done</button></div></div>`;
   root.appendChild(back);
   const close = () => back.remove();
+  turnIn(back.querySelector("#pf-turnin"));
   back.addEventListener("click", async e => {
     if (e.target === back) return close();
     const x = e.target.closest("[data-x]")?.dataset.x; if (!x) return;
     if (x === "close") return close();
+    if (x === "turnin" || x === "done" || x === "notyet") return;   // handled in turnIn
     if (x === "dl") { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 20000); return; }
     try {
       const file = new File([blob], name, { type: "application/pdf" });
@@ -319,6 +331,45 @@ function exportSheet(blob, name) {
       e.target.closest("[data-x]").disabled = true;
     } catch (err) { ctx0.toast(files.errorText(err)); }
   });
+}
+
+/* ---------- turn it in: which deadline this PDF is for, open its page, then mark it done ---------- */
+const siteOf = url => { try { const h = new URL(url).hostname; return /gradescope/i.test(h) ? "Gradescope" : /brightspace|desire2learn|d2l/i.test(h) ? "Brightspace" : h.replace(/^www\./, ""); } catch (e) { return ""; } };
+const dueText = t => t ? new Date(t).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "no date";
+async function turnIn(box) {
+  const all = (await store.list("deadlines").catch(() => [])).filter(r => r.data && r.data.title !== undefined).map(r => ({ id: r.id, ...r.data }));
+  // a PDF from a milestone that's linked to a deadline: that one
+  if (!marks.deadline && meta.scope === "milestone" && meta.owner) {
+    const m = await store.get("milestones", String(meta.owner).split(":")[1]).catch(() => null);
+    const id = m && m.deadlineKey && m.deadlineKey.replace(/^deadlines:/, "");
+    if (id && all.some(d => d.id === id)) { marks.deadline = id; saveNow(); }
+  }
+  const list = all.filter(d => !d.done || d.id === marks.deadline).sort((a, b) => (a.due || Infinity) - (b.due || Infinity));
+  if (!list.length) { box.innerHTML = ""; return; }
+  const paint = (asking = false) => {
+    const d = all.find(x => x.id === marks.deadline), site = d && d.url ? siteOf(d.url) : "";
+    box.innerHTML = `<label>Turn it in for<select class="field" id="pf-dl">
+        <option value="">Pick a deadline…</option>
+        ${list.map(x => `<option value="${esc(x.id)}" ${x.id === marks.deadline ? "selected" : ""}>${esc([x.title, x.course, dueText(x.due)].filter(Boolean).join(" · "))}${x.done ? " (done)" : ""}</option>`).join("")}
+      </select></label>
+      ${!d ? "" : asking ? `<div class="pf-ask"><b>Did you turn it in?</b><span>${esc(d.title)}</span>
+          <div class="acts"><button class="pill-btn secondary" data-x="notyet">Not yet</button><button class="pill-btn" data-x="done">${svg("circleCheck")} Mark done</button></div></div>`
+        : d.done ? `<p class="note">${svg("circleCheck")} Marked done.</p>`
+        : `<button class="pill-btn secondary" data-x="turnin">${svg(d.url ? "externalLink" : "circleCheck")} ${d.url ? `Open ${esc(site)} to upload it` : "Mark it turned in"}</button>
+           ${d.url ? `<p class="note">Download it first, then upload it there.</p>` : ""}`}`;
+    box.querySelector("#pf-dl").onchange = e => { marks.deadline = e.target.value || undefined; saveNow(); paint(); };
+  };
+  box.onclick = async e => {
+    const x = e.target.closest("[data-x]")?.dataset.x, d = all.find(y => y.id === marks.deadline);
+    if (!d) return;
+    if (x === "turnin") { if (d.url) { window.open(d.url, "_blank", "noopener"); paint(true); } else paint(true); }
+    if (x === "notyet") paint();
+    if (x === "done") {
+      await (await import("../deadlines/deadlines.js")).complete(`deadlines:${d.id}`);
+      d.done = true; paint(); ctx0.toast(`Marked “${d.title}” done`);
+    }
+  };
+  paint();
 }
 
 /* ---------- app plumbing ---------- */
@@ -360,9 +411,13 @@ async function mount(el, ctx) {
       <span class="pf-zoom"><button class="icon-btn" id="pf-zout" aria-label="Zoom out">${svg("zoomOut")}</button><span id="pf-zlvl">100%</span><button class="icon-btn" id="pf-zin" aria-label="Zoom in">${svg("zoomIn")}</button></span>
       <span class="pf-hint" id="pf-hint"></span>
       <span class="ap-spacer"></span>
+      ${notesButton("pf-notes")}
       <button class="pill-btn" id="pf-export">${svg("download")} Save as PDF</button>
     </div>
-    <div class="ap-scroll pf-main" id="pf-main"></div>`;
+    <div class="pf-split"><div class="ap-scroll pf-main" id="pf-main"></div><aside id="pf-np"></aside></div>`;
+  notes = notesPanel({ host: el, panel: $("#pf-np"), button: el.querySelector(".pf-notes"), key: "pf-np-h",
+    get: () => marks, set: async patch => { if (!marks) return; Object.assign(marks, patch); clearTimeout(saveT); saveT = null; await saveNow(); } });
+  el.querySelector(".pf-notes").onclick = () => notes.toggle();
   $("#pf-back").onclick = () => go("");
   el.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => setTool(b.dataset.tool));
   el.querySelectorAll("[data-color]").forEach(b => b.onclick = () => {
@@ -396,6 +451,9 @@ async function mount(el, ctx) {
   });
   let rz = null;
   addEventListener("resize", () => { if (!doc || !ctx0.isActive()) return; clearTimeout(rz); rz = setTimeout(fitWidth, 200); });
+  // opening or closing the notes panel changes the page width: fit the pages to it
+  let lastW = 0;
+  new ResizeObserver(() => { const w = $("#pf-main").clientWidth; if (!doc || !ctx0.isActive() || Math.abs(w - lastW) < 2) return; lastW = w; clearTimeout(rz); rz = setTimeout(fitWidth, 120); }).observe($("#pf-main"));
   store.onChange(ch => {
     // marks changed on another device while this one is open: show them (unless you're mid-stroke)
     if (ch.app === APP && ch.source === "remote" && fileId && (ch.ids || []).includes(fileId) && !live) {
@@ -404,11 +462,13 @@ async function mount(el, ctx) {
   });
 }
 
-/** show("") list · show("<file id>") open that PDF */
+/** show("") list · show("<file id>") open that PDF · show("<file id>/pen") open it with the pen ready (from a milestone step) */
 async function show(arg) {
-  const id = typeof arg === "string" && arg ? decodeURIComponent(arg) : "";
-  if (id && id === fileId && doc) return;
-  return id ? openDoc(id) : renderList();
+  const [raw, mode] = typeof arg === "string" ? arg.split("/") : [];
+  const id = raw ? decodeURIComponent(raw) : "";
+  if (id && mode === "pen") history.replaceState(null, "", `#${APP}/${encodeURIComponent(id)}`);
+  if (!(id && id === fileId && doc)) await (id ? openDoc(id) : renderList());
+  if (mode === "pen" && doc) setTool("pen");
 }
 function hide() { if (saveT && fileId && marks) { clearTimeout(saveT); saveT = null; saveNow(); } }
 

@@ -371,3 +371,5 @@ button.ms-tag{border:0;cursor:pointer}
 
 /* a step moved off a Schedule break */
 .ms-moved{color:var(--tint-warm-fg)}
+.ms-markup{display:inline-flex;align-items:center;gap:4px}.ms-markup .ic{width:13px;height:13px}
+@media (hover:hover){.ms-step:hover .ms-tag.ms-markup{display:inline-flex}}
