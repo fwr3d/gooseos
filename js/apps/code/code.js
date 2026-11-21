@@ -5,6 +5,7 @@
 // Saved items:
 //   app "code", id "p-…": { files: [{ name, text }], active (file name), input, created, updated }
 //                         files[0] names the program (its tab)
+//                         deadline: a deadline id when it was started from Deadlines ("Open in Code")
 //   data files: js/files.js, scope "code", owner "code:<program id>"
 // Files a run writes (like summary.csv) stay on the page as "new" until you keep them.
 import * as store from "../../store.js";
@@ -13,6 +14,7 @@ import { svg } from "../../icons.js";
 import * as runner from "./runner.js";
 import { createEditor } from "./editor.js";
 import { renderMd, KINDS } from "../milestones/workspace.js";
+import { dueLabel } from "../deadlines/parse.js";
 
 const APP = "code", MAX_OUT = 200000;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -97,6 +99,7 @@ async function render() {
   await loadData();
   if (!body.querySelector(".cd-win")) {
     body.innerHTML = `<div class="cd-split"><div class="cd-win">
+      <div class="cd-due" id="cd-due" hidden></div>
       <div class="cd-top">
         <div class="cd-tabs" id="cd-tabs" role="tablist" aria-label="Programs"></div>
         <span class="ap-spacer"></span>
@@ -133,7 +136,7 @@ async function render() {
     $("#cd-keys").addEventListener("pointerdown", e => { const b = e.target.closest("[data-k]"); if (!b) return; e.preventDefault(); ed.type(b.dataset.k); });
     wireDrop($(".cd-win"));
   }
-  paintTabs(); paintFiles(); paintRef();
+  paintTabs(); paintFiles(); paintRef(); paintDue();
   const f = activeFile();
   if (document.activeElement !== ed.ta) ed.set(f.text);
   if (document.activeElement !== $("#cd-input")) $("#cd-input").value = cur.input || "";
@@ -196,6 +199,55 @@ function paintStatus() {
 }
 let lastStatus = "";
 runner.onStatus(s => { lastStatus = s.text; if (root) paintStatus(); });
+
+/* ---------- the deadline a program was started for ---------- */
+// A due countdown and a Mark done button above the editor, while that program is open.
+let dueTick = null;
+function leftText(ms) {
+  const a = Math.abs(ms), m = Math.floor(a / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  const t = d >= 1 ? `${d}d ${h % 24}h` : h >= 1 ? `${h}h ${m % 60}m` : `${Math.max(1, m)}m`;
+  return ms < 0 ? `${t} late` : `${t} left`;
+}
+async function paintDue() {
+  const el = $("#cd-due"); if (!el) return;
+  clearInterval(dueTick); dueTick = null;
+  const id = cur && cur.deadline;
+  const d = id ? await store.get("deadlines", id).catch(() => null) : null;
+  if (!cur || cur.deadline !== id) return;   // switched programs meanwhile
+  if (!d) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  const paint = () => {
+    const ms = d.due ? d.due - Date.now() : null;
+    const tone = ms === null ? "" : ms < 0 ? "bad" : ms < 864e5 ? "warn" : "";
+    el.innerHTML = `${svg("calendarClock")}<a class="cd-due-t" href="#deadlines/${encodeURIComponent(id)}"><b>${esc(d.title)}</b><span>${esc([d.course, d.due ? "due " + dueLabel(d.due) : "no due date"].filter(Boolean).join(" · "))}</span></a>
+      ${d.done ? `<span class="ap-pill good">Done</span>` : `${ms !== null ? `<span class="ap-pill ${tone}">${leftText(ms)}</span>` : ""}<button class="pill-btn secondary cd-done" id="cd-done" type="button">${svg("check")}<span>Mark done</span></button>`}`;
+    const b = el.querySelector("#cd-done");
+    if (b) b.onclick = async () => {
+      b.disabled = true;
+      await (await import("../deadlines/deadlines.js")).complete("deadlines:" + id);
+      ctx0.toast(`Done: ${d.title}`);
+      paintDue();
+    };
+  };
+  paint();
+  if (!d.done && d.due) dueTick = setInterval(() => { if ($("#cd-due") === el && el.isConnected) paint(); else clearInterval(dueTick); }, 30000);
+}
+// from a deadline's "Open in Code": the program started for it, or a new one
+async function openForDeadline(dlId) {
+  await save(true); await loadProgs();
+  let p = progs.find(x => x.deadline === dlId);
+  if (!p) {
+    const d = await store.get("deadlines", dlId).catch(() => null);
+    if (!d) { ctx0.toast("That deadline isn't there anymore"); cur = cur || progs[progs.length - 1] || null; setRoute(); return render(); }
+    const name = cleanName(String(d.title || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "program");
+    const head = [d.title, [d.course, d.due ? "due " + dueLabel(d.due) : ""].filter(Boolean).join(", ")].filter(Boolean).map(l => `# ${l}`).join("\n");
+    p = await create({ name, text: `${head}\n\n`, input: "" }, name);
+    p.deadline = dlId;
+  }
+  if (!cur || cur.id !== p.id) { if (runner.running()) runner.stop("stopped"); clearOut(); }
+  cur = p; refList = false;
+  await save(true); setRoute(); render();
+}
 
 /* ---------- running ---------- */
 function clearOut(hint = true) {
@@ -747,12 +799,14 @@ async function mount(el, ctx) {
     else if (ch.app === "files" && cur) loadData().then(paintFiles);
     else if ((ch.app === "docs" || ch.app === "milestones") && cur) { refDocs = null; paintRef(); }
   });
+  store.onChange(ch => { if (ch.app === "deadlines" && cur && cur.deadline && ch.ids.includes(cur.deadline) && ctx.isActive()) paintDue(); });
   window.addEventListener("beforeunload", () => { if (saveT) save(true); });
 }
 async function show(arg) {
   refDocs = null;   // notes may have changed in Milestones since last time
   const id = arg ? decodeURIComponent(arg) : null;
   if (id && id.startsWith("doc:")) return openForDoc(id.slice(4));
+  if (id && id.startsWith("deadline:")) return openForDeadline(id.slice(9));
   if (id && (!cur || cur.id !== id)) { await save(true); cur = { id }; clearOut(); }
   await render();
 }

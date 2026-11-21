@@ -8,10 +8,15 @@
 //     startLeftCents/startAt: "I had this much left at this moment". Used for the
 //     month it was typed in, so you can start mid-month. Later months start from monthlyCents.
 //   app "wallet", any other id: one purchase { cents, cat, place, at (ms), note }
+//   app "wallet", id "p-dl-<deadline id>": a deadline with an amount you paid (logged when it's marked done)
 // A month runs from payday to the day before the next payday, even if the
 // deposit lands a few days late. Leftover money does not roll over.
+// Dues: open deadlines with an amount (deadlines.js, cents). The ones due before
+// the month ends are held back from what's left, so "safe to spend" leaves room for them.
 import * as store from "../../store.js";
 import { svg, tile } from "../../icons.js";
+import { loadDeadlines } from "../deadlines/deadlines.js";
+import { dueLabel } from "../deadlines/parse.js";
 
 const APP = "wallet", D = 864e5;
 const CATS = {
@@ -58,6 +63,23 @@ async function purchases() {
 }
 const spent = (list, from, to) => list.reduce((n, p) => p.at >= from && p.at < to ? n + p.cents : n, 0);
 
+/* ---------- dues: deadlines that cost money ---------- */
+async function loadDues() {
+  try { return (await loadDeadlines()).filter(d => !d.done && d.cents > 0).sort((a, b) => (a.due || Infinity) - (b.due || Infinity)); }
+  catch (e) { return []; }
+}
+const dueId = id => `p-dl-${id}`;
+/** A due was marked done: log what it cost, once. Returns true when logged (Wallet set up and not logged yet). */
+export async function payDue(d) {
+  if (!(d && d.id && d.cents > 0) || !(await getSettings()) || await store.get(APP, dueId(d.id))) return false;
+  await store.put(APP, dueId(d.id), { cents: d.cents, cat: "other", place: d.title || "Due", at: Date.now(), note: "Due from Deadlines", deadline: d.id });
+  return true;
+}
+/** The due went back to not done: take its payment back out. */
+export async function unpayDue(deadlineId) {
+  if (await store.get(APP, dueId(deadlineId))) await store.remove(APP, dueId(deadlineId));
+}
+
 /** Midnight on the first day of the week that holds t. */
 function weekOf(t, ws = "mon") {
   const d = dayStart(t), dow = new Date(d).getDay();
@@ -85,9 +107,12 @@ const tracked = (s, per) => !s.startAt || per.end > s.startAt;
 /** Where you are right now. Used by the app, the widget, Today and Reminders. */
 async function status(now = Date.now()) {
   const s = await getSettings(); if (!s) return null;
-  const list = await purchases();
+  const [list, dues] = await Promise.all([purchases(), loadDues()]);
   const per = periodOf(now, s.payday), base = baseOf(s, per);
-  const left = base.cents - spent(list, base.from, per.end);
+  // dues this month (or overdue, or with no date) come out of what's left until they're paid
+  const held = dues.filter(d => !d.due || d.due < per.end);
+  const reserved = held.reduce((n, d) => n + d.cents, 0);
+  const left = base.cents - spent(list, base.from, per.end) - reserved;
   const daysLeft = Math.max(1, daysBetween(now, per.end));
   const perDay = Math.max(0, left) / daysLeft;
   // this week's share: what was left when the week (or your tracking) began, split over the days left then
@@ -101,7 +126,7 @@ async function status(now = Date.now()) {
   const weekTone = weekSpent > weekShare ? "bad" : weekSpent > weekShare * 0.75 ? "warn" : "good";
   const pace = s.monthlyCents / per.days;
   const tone = left < 0 ? "bad" : perDay < pace * 0.8 ? "warn" : "good";   // month pace only
-  return { s, list, per, base, left, daysLeft, perDay, weekSpent, weekShare, weekEnd, showWeek, weekTone, tone };
+  return { s, list, per, base, left, daysLeft, perDay, weekSpent, weekShare, weekEnd, showWeek, weekTone, tone, dues, held, reserved };
 }
 const toneColor = t => t === "bad" ? "var(--bad)" : t === "warn" ? "var(--warn)" : "var(--good)";
 
@@ -109,7 +134,7 @@ const toneColor = t => t === "bad" ? "var(--bad)" : t === "warn" ? "var(--warn)"
 function usuals(list, now = Date.now()) {
   const groups = new Map();
   for (const p of list) {
-    if (!p.place || p.at < now - 75 * D) continue;
+    if (!p.place || p.deadline || p.at < now - 75 * D) continue;   // paid dues aren't one-tap buys
     const k = `${p.place.toLowerCase()}|${p.cat}`;
     const g = groups.get(k) || { place: p.place, cat: p.cat, score: 0, amounts: new Map(), last: 0 };
     g.score += 1 + Math.max(0, 1 - (now - p.at) / (30 * D));
@@ -250,8 +275,17 @@ function renderBudget(st) {
       <div class="wl-month">
         <div class="wl-sub"><span><b>${left < 0 ? `${whole(left)} over` : `${whole(left)} left`}</b> of ${whole(base.partial ? base.cents : s.monthlyCents)}${base.partial ? " (since you started)" : ""}</span><span>${daysLeft} day${daysLeft === 1 ? "" : "s"} left in ${periodName(per, s.payday)}</span></div>
         ${meter(base.cents - left, base.cents, tone, "thin")}
+        ${st.reserved ? `<div class="wl-sub"><span>Holding ${money(st.reserved)} for ${st.held.length === 1 ? "a due" : `${st.held.length} dues`} below</span></div>` : ""}
       </div>
     </section>
+
+    ${st.dues.length ? `<section class="ap-sec"><h3>Upcoming dues<span class="n">${st.dues.length}</span></h3>
+      <div class="ap-card">${st.dues.map(d => {
+        const held = st.held.includes(d), late = d.due && d.due < Date.now();
+        return `<div class="ap-row wl-row wl-due"><i class="ap-swatch" style="background:${late ? "var(--bad)" : "var(--warn)"}"></i>
+          <a class="grow wl-edit" href="#deadlines/${encodeURIComponent(d.id)}"><span class="t">${esc(d.title)}</span><span class="s ${late ? "bad" : ""}">${esc([late ? "Overdue" : "", d.due ? dueLabel(d.due) : "No date", held ? "" : "next month"].filter(Boolean).join(" · "))}</span></a>
+          <b class="wl-amt">${money(d.cents)}</b><button class="pill-btn secondary wl-paid" data-paid="${esc(d.id)}">Paid</button></div>`;
+      }).join("")}</div></section>` : ""}
 
     <form class="ap-input wl-quick" id="wl-quick" autocomplete="off">
       ${svg("plus")}<input id="wl-text" placeholder="45 kroger" aria-label="Amount and place, like 45 kroger" enterkeyhint="done">
@@ -294,6 +328,14 @@ function renderBudget(st) {
     const id = await addPurchase(c);
     await render();
     undoToast(`Added ${money(c.cents)} · ${c.place}`, () => store.remove(APP, id));
+  });
+  root.querySelectorAll("[data-paid]").forEach(b => b.onclick = async () => {
+    const d = st.dues.find(x => x.id === b.dataset.paid); if (!d) return;
+    b.disabled = true;
+    const dl = await import("../deadlines/deadlines.js");
+    await dl.complete("deadlines:" + d.id);   // marks it done and logs the payment here
+    await render();
+    undoToast(`Paid ${money(d.cents)} · ${d.title}`, () => dl.undoDone(d.id));
   });
   root.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => { const p = list.find(x => x.id === b.dataset.edit); if (p) editPurchase(p); });
   root.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
@@ -453,7 +495,7 @@ async function mount(el, ctx) {
     <div class="ap-scroll"><div class="ap-body" id="wl-body"></div></div>`;
   el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; recapMonth = 0; setRoute(); el.querySelector(".ap-scroll").scrollTop = 0; render(); });
   $("#wl-set").onclick = async () => openSettings((await store.get(APP, "settings")) || { monthlyCents: 0, payday: 1, weekStart: "mon" });
-  store.onChange(ch => { if (ch.source === "remote" && ch.app === APP && ctx.isActive()) render(); });
+  store.onChange(ch => { if (ch.source === "remote" && (ch.app === APP || ch.app === "deadlines") && ctx.isActive()) render(); });
 }
 async function show(arg) {
   tab = arg === "recap" ? "recap" : "budget"; recapMonth = 0;

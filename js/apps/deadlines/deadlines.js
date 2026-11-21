@@ -3,7 +3,9 @@
 // subscription link; Gradescope, Ed and anything else go in with quick add.
 //
 // Saved through the shared store as items of app "deadlines":
-//   { title, course, list?, due (ms or null), source, done, url?, uid?, edited?, created }
+//   { title, course, list?, due (ms or null), source, done, url?, uid?, edited?, created, cents? }
+//   cents: money it costs (frat dues, rent). Wallet holds it back from "safe to spend" until it's done,
+//   and marking it done logs it as a purchase there (id "p-dl-<deadline id>").
 //   list: a list id from js/lists.js (school, frat, personal, money, or yours).
 //   Without one, it's School when there's a course and Personal when there isn't.
 // Settings live in app "deadlines-config", item "brightspace": { url, lastSync }.
@@ -29,6 +31,13 @@ const COURSE_COLORS = ["#2f5bea", "#e5484d", "#22a45d", "#e08a00", "#8b5cf6", "#
 const SYNC_EVERY = 30 * 60 * 1000;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+export const moneyText = c => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+const toCents = v => { const n = parseFloat(String(v ?? "").replace(/[$,\s]/g, "")); return isFinite(n) && n > 0 ? Math.round(n * 100) : 0; };
+/** "frat dues $120 fri" → { text: "frat dues fri", cents: 12000 }. Needs the $, so "proj 3" stays a title. */
+function takeAmount(text) {
+  const m = String(text).match(/(^|\s)\$\s?(\d+(?:[.,]\d{1,2})?)(?=\s|$)/);
+  return m ? { text: (text.slice(0, m.index) + " " + text.slice(m.index + m[0].length)).replace(/\s+/g, " ").trim(), cents: toCents(m[2].replace(",", ".")) } : { text, cents: 0 };
+}
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export function courseColor(c) { let h = 0; for (const ch of String(c)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return COURSE_COLORS[h % COURSE_COLORS.length]; }
 
@@ -54,6 +63,9 @@ export async function knownCourses() {
   return [...seen.values()];
 }
 
+/** CS classes can be worked on in the Code app. */
+export const isCS = d => /^\s*cs\b/i.test((d && d.course) || "");
+
 /** Exams get the full reminder ramp: tagged by the syllabus scanner, or named like one. */
 const isExam = d => d.type === "exam" || (/\b(exam|midterm|final)\b/i.test(d.title || "") && !/\bfinal\s+(project|paper|presentation|report|essay)\b/i.test(d.title || ""));
 
@@ -65,18 +77,39 @@ export async function agenda() {
     .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: isExam(d) ? "exam" : "deadline", course: d.course || "", list: lists.listOf(d, ls), done: !!d.done, open: `#${APP}/${d.id}` }));
 }
 
+/* After marking done: an exam, project, homework or quiz gets a Grades entry waiting on its score.
+   One with an amount gets logged in Wallet as paid. Returns { grade, paid }.
+   Back to not done: both go again (the Grades entry only if no score went in). */
+async function afterDone(d) {
+  const out = { grade: null, paid: false };
+  try { out.grade = await (await import("../grades/grades.js")).addWaiting(d); } catch (e) { console.error(e); }
+  if (d.cents > 0) try { out.paid = await (await import("../wallet/wallet.js")).payDue(d); } catch (e) { console.error(e); }
+  return out;
+}
+async function afterUndone(id) {
+  try { await (await import("../grades/grades.js")).dropWaiting(id); } catch (e) { console.error(e); }
+  try { await (await import("../wallet/wallet.js")).unpayDue(id); } catch (e) { console.error(e); }
+}
+/** Undo a done: not done again, and its Grades entry and Wallet payment go too. */
+export async function undoDone(id) {
+  const d = await store.get(APP, id);
+  if (d && d.done) await store.put(APP, id, { ...d, done: false });
+  await afterUndone(id);
+}
+
 /** Mark one agenda item done ("deadlines:<id>"). */
 export async function complete(key) {
   const id = String(key).replace(new RegExp(`^${APP}:`), "");
   const d = await store.get(APP, id);
-  if (d && !d.done) await store.put(APP, id, { ...d, done: true });
+  if (d && !d.done) { await store.put(APP, id, { ...d, done: true }); await afterDone({ id, ...d }); }
 }
 /** Add a deadline from quick-capture text. Returns the saved item, or null if empty. */
 export async function addFromText(text) {
-  const p = parseCapture(text, new Date(), await knownCourses(), await lists.loadLists());
+  const amt = takeAmount(text);
+  const p = parseCapture(amt.text, new Date(), await knownCourses(), await lists.loadLists());
   if (!p.title && !p.course) return null;
   const id = "d-" + uid();
-  const item = { title: p.title || p.course, course: p.course, list: p.list || (p.course ? "school" : "personal"), due: p.due ? p.due.getTime() : null, source: p.source || "manual", done: false, created: Date.now() };
+  const item = { title: p.title || p.course, course: p.course, list: p.list || (p.course ? "school" : "personal"), due: p.due ? p.due.getTime() : null, source: p.source || "manual", done: false, created: Date.now(), ...(amt.cents ? { cents: amt.cents } : {}) };
   await store.put(APP, id, item);
   return { id, ...item };
 }
@@ -218,7 +251,7 @@ function rowHtml(d) {
     <button class="dl-check" data-act="toggle" aria-label="${d.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
     <button class="dl-main" data-act="edit">
       <span class="t">${esc(d.title)}</span>
-      <span class="dl-meta">${tag}<span title="${src.label}">${svg(src.icon)}</span><span>${d.due ? esc(dueLabel(d.due)) : "No date"}</span></span>
+      <span class="dl-meta">${tag}<span title="${src.label}">${svg(src.icon)}</span><span>${d.due ? esc(dueLabel(d.due)) : "No date"}</span>${d.cents > 0 ? `<span class="dl-amt">${esc(moneyText(d.cents))}</span>` : ""}</span>
     </button>
     ${left.text ? `<span class="dl-left ${left.cls}">${left.text}</span>` : ""}
   </div>`;
@@ -344,8 +377,12 @@ function openEdit(d) {
       <label>Course<input class="field" name="course" value="${esc(d.course)}" placeholder="${curList === "school" ? "CS 18000" : "None"}" list="dl-course-opts"></label>
     </div>
     <label>From<select class="field" name="source">${Object.entries(SOURCES).map(([k, v]) => `<option value="${k}" ${d.source === k ? "selected" : ""}>${v.label}</option>`).join("")}</select></label>
-    <label>Due<input class="field" type="datetime-local" name="due" value="${d.due ? toLocalInput(d.due) : ""}"></label>
+    <div class="dl-dueamt">
+      <label>Due<input class="field" type="datetime-local" name="due" value="${d.due ? toLocalInput(d.due) : ""}"></label>
+      <label>Amount<input class="field" name="cents" inputmode="decimal" value="${d.cents > 0 ? (d.cents / 100).toFixed(d.cents % 100 ? 2 : 0) : ""}" placeholder="$ none" aria-label="Amount, if it costs money"></label>
+    </div>
     ${d.url ? `<a class="link-btn" href="${esc(d.url)}" target="_blank" rel="noopener">${svg("externalLink")} Open in Brightspace</a>` : ""}
+    ${!isNew && isCS(d) ? `<button type="button" class="link-btn" data-act="code">${svg("code")} Open in Code</button>` : ""}
     ${isNew ? "" : `<button type="button" class="link-btn" data-act="breakdown" hidden>${svg("listChecks")} Break it down into steps</button>`}
     <div class="acts">
       ${isNew ? "<span></span>" : `<button type="button" class="pill-btn secondary" data-act="del" style="color:var(--bad)">Delete</button>`}
@@ -360,6 +397,11 @@ function openEdit(d) {
   f.querySelector('[data-act="cancel"]').onclick = close;
   const del = f.querySelector('[data-act="del"]');
   if (del) del.onclick = async () => { close(); await forget(d); await store.remove(APP, d.id); ctx0.toast(`Deleted “${d.title}”`); render(); };
+  const code = f.querySelector('[data-act="code"]');
+  if (code) {
+    store.list("code").then(ps => { if (ps.some(p => p.data && p.data.deadline === d.id)) code.lastChild.textContent = " Keep working in Code"; }).catch(() => {});
+    code.onclick = () => { close(); location.hash = `code/deadline:${encodeURIComponent(d.id)}`; };
+  }
   // "Break it down" appears once the Milestones app exists
   const bd = f.querySelector('[data-act="breakdown"]');
   if (bd) import("../index.js").then(async m => {
@@ -374,6 +416,8 @@ function openEdit(d) {
     const fd = new FormData(f);
     const next = { ...d, title: fd.get("title").trim(), course: fd.get("course").trim(), list: fd.get("list"), source: fd.get("source"), due: fd.get("due") ? new Date(fd.get("due")).getTime() : null };
     if (!next.title) return;
+    const cents = toCents(fd.get("cents"));
+    if (cents) next.cents = cents; else delete next.cents;
     const { id, ...data } = next;
     if (!isNew && d.source === "brightspace") data.edited = true;
     await store.put(APP, isNew ? "d-" + uid() : d.id, isNew ? { ...data, created: Date.now() } : data);
@@ -456,8 +500,8 @@ const MARKUP = () => `
 /** Shared live preview for quick-capture inputs. */
 export async function previewHtml(text) {
   if (!text.trim()) return "";
-  const ls = await lists.loadLists();
-  const p = parseCapture(text, new Date(), await knownCourses(), ls);
+  const ls = await lists.loadLists(), amt = takeAmount(text);
+  const p = parseCapture(amt.text, new Date(), await knownCourses(), ls);
   const src = p.source ? SOURCES[p.source] : null;
   const l = lists.byId(ls, p.list || (p.course ? "school" : "personal"));
   return [
@@ -465,6 +509,7 @@ export async function previewHtml(text) {
     p.course ? `<span class="chip course" style="background:${courseColor(p.course)}">${esc(p.course)}</span>` : "",
     `<span class="chip">${esc(p.title || "…")}</span>`,
     `<span class="chip">${svg("clock")}${p.due ? esc(dueLabel(p.due)) : "No date"}</span>`,
+    amt.cents ? `<span class="chip">${svg("wallet")}${esc(moneyText(amt.cents))}</span>` : "",
     src ? `<span class="chip">${svg(src.icon)}${src.label}</span>` : "",
   ].join("");
 }
@@ -518,7 +563,12 @@ async function mount(el, ctx) {
     if (act === "toggle") {
       const { id, ...data } = d;
       await store.put(APP, id, { ...data, done: !d.done });
-      if (!d.done) { lastUndo = d; ctx0.toast(`Done: ${d.title}`, { label: "Undo", run: async () => { const { id: i2, ...dd } = lastUndo; await store.put(APP, i2, { ...dd, done: false }); document.querySelector(".toast").hidden = true; render(); } }); }
+      if (!d.done) {
+        lastUndo = d;
+        const r = await afterDone(d);
+        const extra = r.paid ? ` · ${moneyText(d.cents)} logged in Wallet` : r.grade ? " · waiting on a score in Grades" : "";
+        ctx0.toast(`Done: ${d.title}${extra}`, { label: "Undo", run: async () => { const { id: i2, ...dd } = lastUndo; await store.put(APP, i2, { ...dd, done: false }); await afterUndone(i2); document.querySelector(".toast").hidden = true; render(); } });
+      } else await afterUndone(id);
       render();
     } else if (act === "edit") openEdit(d);
   });

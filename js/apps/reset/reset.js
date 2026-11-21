@@ -5,15 +5,18 @@
 //   4. A one-line note to Monday-you, shown on Today Monday and sent Monday 8 AM
 //
 // Saved items: app "reset", id "w-YYYY-MM-DD" (the Monday of the week planned):
-//   { week (ms), pins: [{ id, key?, title, done }], note, doneAt (ms) }
+//   { week (ms), pins: [{ id, key?, title, done, slot?, noSlot? }], note, doneAt (ms) }
 //   A pin with a key points at an agenda item (a deadline, a step). Without
 //   one it's a to-do you typed yourself.
+//   slot: { start, end } (ms), a time you said yes to. noSlot: you turned the suggestion down.
+//   Suggestions come from open gaps between your classes (Schedule), before the pin is due.
 // On Sunday you plan the week starting tomorrow. Any other day, this week.
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
 import * as agenda from "../../agenda.js";
 import { loadMilestones } from "../milestones/milestones.js";
 import { dueLabel } from "../deadlines/parse.js";
+import { loadCourses, loadSemester, meetingsOn } from "../schedule/schedule.js";
 
 const APP = "reset", D = 864e5, MAX = 3, PING_HOUR = 20, NOTE_HOUR = 8;
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -40,6 +43,57 @@ async function activePlan(now) {
   return { w: w0, p: await getPlan(w0) };
 }
 
+/* ---------- when to do each must-do ---------- */
+const M = 60e3, EVENING = 21, MIN_GAP = 60 * M, WORK = 90 * M, WALK = 10 * M;
+const clock = t => new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+const slotLabel = s => `${new Date(s.start).toLocaleDateString(undefined, { weekday: "short" })} ${clock(s.start)} – ${clock(s.end)}`;
+const up15 = t => Math.ceil(t / (15 * M)) * 15 * M;
+
+/** Open stretches of an hour or more between classes (and after the last class until 9 PM) on class days,
+ *  from now to the end of week w. null when Schedule has no classes. */
+async function openGaps(now, w) {
+  let courses = [], sem = { breaks: [] };
+  try { [courses, sem] = await Promise.all([loadCourses(), loadSemester()]); } catch (e) { return null; }
+  if (!courses.some(c => (c.meetings || []).length)) return null;
+  const out = [];
+  for (let t = dayStart(Math.max(now, w)); t < addDays(w, 7); t = addDays(t, 1)) {
+    const busy = [];
+    for (const x of meetingsOn(courses, sem, t)) {
+      const last = busy[busy.length - 1];
+      if (last && x.start <= last.end) { last.end = Math.max(last.end, x.end); last.code = x.course.code; }
+      else busy.push({ start: x.start, end: x.end, code: x.course.code });
+    }
+    busy.forEach((b, i) => {
+      const start = up15(Math.max(b.end + WALK, now)), end = i + 1 < busy.length ? busy[i + 1].start - WALK : t + EVENING * 3600e3;
+      const next = busy[i + 1];
+      if (end - start >= MIN_GAP) out.push({ start, end, why: next ? `before ${next.code} at ${clock(next.start)}` : "after your last class" });
+    });
+  }
+  return out;
+}
+/** One suggested time per open pin: the first gap that fits before it's due, no two pins at once. */
+function suggestSlots(pins, gaps) {
+  const taken = pins.filter(p => p.slot && !p.done).map(p => p.slot), out = {};
+  for (const p of pins) {
+    if (p.done || p.slot || p.noSlot) continue;
+    const len = Math.min(180 * M, Math.max(45 * M, (p.estMin || 0) * M || WORK)), due = p.due || Infinity;
+    for (const g of gaps) {
+      let s = g.start;
+      for (const t of taken.slice().sort((a, b) => a.start - b.start)) if (s < t.end && t.start < s + len) s = t.end;
+      const e = Math.min(g.end, s + len);
+      if (e - s >= Math.min(len, MIN_GAP) && e <= due) { out[p.id] = { start: s, end: e, why: g.why }; taken.push(out[p.id]); break; }
+    }
+  }
+  return out;
+}
+async function patchPin(w, id, patch) {
+  const p = await store.get(APP, wid(w)); if (!p) return;
+  const pin = p.pins.find(x => x.id === id); if (!pin) return;
+  Object.assign(pin, patch);
+  for (const k of Object.keys(patch)) if (patch[k] === undefined) delete pin[k];
+  await store.put(APP, wid(w), p);
+}
+
 const kindLabel = i => i.kind === "step" ? "Step" : i.kind === "task" ? "To-do" : "";
 const subOf = i => [i.course, kindLabel(i), dueLabel(i.due)].filter(Boolean).join(" · ");
 
@@ -51,11 +105,15 @@ export async function forToday(now = Date.now()) {
   if (!p) return out;
   out.week = w;
   const items = await agenda.list({ done: true });
+  const when = pin => pin.slot && !pin.done && pin.slot.end > now ? slotLabel(pin.slot) : "";
   out.pins = p.pins.map(pin => {
-    if (!pin.key) return { ...pin, sub: "Your own", open: "#reset" };
+    // sub (shown on Today) leads with the time you picked; baseSub is the same without it
+    if (!pin.key) return { ...pin, sub: [when(pin), "Your own"].filter(Boolean).join(" · "), baseSub: "Your own", open: "#reset" };
     const it = items.find(i => i.key === pin.key);
     // Gone from the agenda means it was finished (or deleted) somewhere else.
-    return it ? { ...pin, title: it.title, done: !!it.done, sub: subOf(it), open: it.open } : { ...pin, done: true, sub: "", open: "#reset" };
+    if (!it) return { ...pin, done: true, sub: "", open: "#reset" };
+    const x = { ...pin, title: it.title, done: !!it.done, due: it.due || null, estMin: it.estMin || 0, open: it.open };
+    return { ...x, sub: [when(x), subOf(it)].filter(Boolean).join(" · "), baseSub: subOf(it) };
   });
   if (p.note && now >= w && now < addDays(w, 1)) out.note = p.note;
   return out;
@@ -173,12 +231,26 @@ async function viewDone(g) {
   const t = await forToday(g.now);
   const pins = t.week === g.w ? t.pins : [];
   const done = pins.filter(p => p.done).length;
+  const gaps = pins.some(p => !p.done) ? await openGaps(g.now, g.w) : [];
+  const sugg = gaps ? suggestSlots(pins, gaps) : {};
+  const slotHtml = p => {
+    if (p.done) return "";
+    if (p.slot) return `<div class="rs-slot on">${svg("clock")}<span class="grow">${esc(slotLabel(p.slot))}</span><button class="icon-btn" data-act="slot-clear" data-id="${esc(p.id)}" aria-label="Clear this time" title="Clear this time">${svg("x")}</button></div>`;
+    const s = sugg[p.id]; if (!s) return "";
+    return `<div class="rs-slot">${svg("clock")}<span class="grow">Do it ${esc(slotLabel(s))}<small>Free ${esc(s.why)}</small></span>
+      <button class="pill-btn secondary" data-act="slot-ok" data-id="${esc(p.id)}" data-start="${s.start}" data-end="${s.end}">Use this time</button>
+      <button class="icon-btn" data-act="slot-no" data-id="${esc(p.id)}" aria-label="Dismiss suggestion" title="Dismiss">${svg("x")}</button></div>`;
+  };
+  const open = pins.filter(p => !p.done && !p.slot && !p.noSlot);
+  const slotNote = !open.length ? "" : gaps === null ? `<p class="rs-hint">Add your classes in <a href="#schedule">Schedule</a> to get a time for each must-do.</p>`
+    : open.some(p => sugg[p.id]) ? "" : `<p class="rs-hint">No open hour between classes left before these are due.</p>`;
   return `<header class="rs-head"><div><div class="rs-eyebrow">Weekly Reset</div><h1>Week of ${esc(md(g.w))} is set</h1></div>
       <button class="pill-btn secondary" data-act="redo">Redo</button></header>
     <section class="ap-sec"><h3>Must do this week<span class="n">${done}/${pins.length}</span></h3>
-      <div class="ap-card">${pins.length ? pins.map(p => `<div class="ap-row ${p.done ? "done" : ""}"><button class="ap-check" data-act="pin" data-id="${esc(p.id)}" aria-label="${p.done ? "Done" : "Mark done"}">${svg("check")}</button>
-        <a class="grow rs-link" href="${esc(p.open)}"><span class="t">${esc(p.title)}</span>${p.sub ? `<span class="s">${esc(p.sub)}</span>` : ""}</a></div>`).join("")
+      <div class="ap-card">${pins.length ? pins.map(p => `<div class="rs-pin"><div class="ap-row ${p.done ? "done" : ""}"><button class="ap-check" data-act="pin" data-id="${esc(p.id)}" aria-label="${p.done ? "Done" : "Mark done"}">${svg("check")}</button>
+        <a class="grow rs-link" href="${esc(p.open)}"><span class="t">${esc(p.title)}</span>${(p.baseSub ?? p.sub) ? `<span class="s">${esc(p.baseSub ?? p.sub)}</span>` : ""}</a></div>${slotHtml(p)}</div>`).join("")
         : `<div class="ap-empty"><b>No must-dos picked</b>Redo the reset to pick up to 3.</div>`}</div>
+      ${slotNote}
     </section>
     ${g.plan.note ? `<section class="ap-sec"><h3>Note for Monday</h3><div class="ap-card pad rs-quote">${esc(g.plan.note)}</div></section>` : ""}
     <p class="rs-hint">${g.week.length} thing${g.week.length === 1 ? "" : "s"} due between now and Sunday. Next reset: Sunday at ${PING_HOUR - 12} PM.</p>`;
@@ -223,7 +295,8 @@ async function finish() {
   const now = Date.now(), w = targetWeek(now), old = await store.get(APP, wid(w));
   const was = new Map(((old && old.pins) || []).map(p => [p.key || p.id, p.done]));
   await store.put(APP, wid(w), { week: w, note: draft.note.trim(), doneAt: now,
-    pins: draft.pins.map(p => ({ id: p.id, ...(p.key ? { key: p.key } : {}), title: p.title, done: !!was.get(p.key || p.id) })) });
+    pins: draft.pins.map(p => ({ id: p.id, ...(p.key ? { key: p.key } : {}), title: p.title, done: !!was.get(p.key || p.id),
+      ...(p.slot ? { slot: p.slot } : {}), ...(p.noSlot ? { noSlot: true } : {}) })) });
   agenda.refresh();
   const n = draft.pins.length;
   mode = "done"; draft = null;
@@ -253,6 +326,9 @@ async function mount(el, ctx) {
     else if (act === "finish") finish();
     else if (act === "done") { await agenda.complete(b.closest("[data-key]").dataset.key); ctx0.toast("Marked done."); render(); }
     else if (act === "pin") { await togglePin(targetWeek(), b.dataset.id); render(); }
+    else if (act === "slot-ok") { const slot = { start: +b.dataset.start, end: +b.dataset.end }; await patchPin(targetWeek(), b.dataset.id, { slot, noSlot: undefined }); ctx0.toast(`Set for ${slotLabel(slot)}`); render(); }
+    else if (act === "slot-no") { await patchPin(targetWeek(), b.dataset.id, { noSlot: true }); render(); }
+    else if (act === "slot-clear") { await patchPin(targetWeek(), b.dataset.id, { slot: undefined, noSlot: undefined }); render(); }
     else if (act === "unpin") { draft.pins = draft.pins.filter(p => p.id !== b.dataset.id); render(); }
     else if (act === "pick") {
       const key = b.dataset.key, i = draft.pins.findIndex(p => p.key === key);
