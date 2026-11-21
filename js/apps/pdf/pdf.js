@@ -415,11 +415,13 @@ async function mount(el, ctx) {
   });
 }
 
-/** show("") list · show("<file id>") open that PDF */
+/** show("") list · show("<file id>") open that PDF · show("<file id>/pen") open it with the pen ready (from a milestone step) */
 async function show(arg) {
-  const id = typeof arg === "string" && arg ? decodeURIComponent(arg) : "";
-  if (id && id === fileId && doc) return;
-  return id ? openDoc(id) : renderList();
+  const [raw, mode] = typeof arg === "string" ? arg.split("/") : [];
+  const id = raw ? decodeURIComponent(raw) : "";
+  if (id && mode === "pen") history.replaceState(null, "", `#${APP}/${encodeURIComponent(id)}`);
+  if (!(id && id === fileId && doc)) await (id ? openDoc(id) : renderList());
+  if (mode === "pen" && doc) setTool("pen");
 }
 function hide() { if (saveT && fileId && marks) { clearTimeout(saveT); saveT = null; saveNow(); } }
 

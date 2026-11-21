@@ -28,7 +28,7 @@ function submitStep(m) {
 }
 export async function openAttachment(id) {
   const f = await files.get(id); if (!f) return;
-  if (files.isPdf(f)) { location.hash = `pdf/${encodeURIComponent(id)}`; return; }
+  if (files.isPdf(f)) { location.hash = `pdf/${encodeURIComponent(id)}/pen`; return; }   // opens with the pen ready
   viewFile(id, { toast: ctx0 ? ctx0.toast : null });
 }
 
@@ -164,13 +164,13 @@ async function renderDetail(id) {
     const late = !s.done && s.date < now, isSel = s.id === sel;
     const ask = (s.kind === "study" || s.kind === "quiz") && s.done && !s.rating;
     const rated = s.rating ? `<button class="ms-tag ${s.rating === "good" ? "green" : "warm"}" data-act="rate-clear" title="Change how it went">${s.rating === "good" ? "got it" : "shaky"}</button>` : "";
-    const hasAtt = onStep(s.id).length + docsOn(s.id).length > 0;
+    const hasAtt = onStep(s.id).length + docsOn(s.id).length > 0, pdf = onStep(s.id).find(files.isPdf);
     const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}</span>`;
     return `<div class="ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${isSel ? "sel" : ""}" data-sid="${s.id}">
       <button class="ms-chk" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg(s.done ? "circleCheck" : "circle")}</button>
       <div class="grow"><span class="ms-ttl">${esc(s.title)}</span>${when}
         ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
-      ${rated}${hasAtt ? `<span class="ms-hasatt" title="Has notes or files">${svg("paperclip")}</span>` : ""}
+      ${rated}${pdf ? `<button class="ms-tag blue ms-markup" data-act="file" data-fid="${esc(pdf.id)}" title="Write on ${esc(pdf.name)}">${svg("filePen")}Mark up</button>` : hasAtt ? `<span class="ms-hasatt" title="Has notes or files">${svg("paperclip")}</span>` : ""}
       <span class="ms-tools">${tool("rename", "pencilLine", "Rename")}${tool("date", "calendar", "Change date")}${tool("est", "clock", "How long it takes")}${tool("rmstep", "trash2", "Remove step")}</span>
     </div>`;
   };

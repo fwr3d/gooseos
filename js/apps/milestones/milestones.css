@@ -333,3 +333,5 @@ button.ms-card:hover{background:var(--accent-soft)}
 .ms-step .ms-rate{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--muted)}
 .ms-step .ms-rate .pill-btn{padding:4px 10px;font-size:12px}
 button.ms-tag{border:0;cursor:pointer}
+.ms-markup{display:inline-flex;align-items:center;gap:4px}.ms-markup .ic{width:13px;height:13px}
+@media (hover:hover){.ms-step:hover .ms-tag.ms-markup{display:inline-flex}}
