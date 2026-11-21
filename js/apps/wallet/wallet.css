@@ -81,3 +81,8 @@
 /* tap a purchase to edit it */
 .wl-edit{border:0;background:none;text-align:left;padding:0;color:inherit;cursor:pointer;font:inherit}
 .wl-edit:hover .t{text-decoration:underline;text-underline-offset:3px}
+
+/* dues from Deadlines */
+a.wl-edit{text-decoration:none;min-width:0}
+.wl-due .s.bad{color:var(--bad)}
+.wl-paid{flex:none;padding:6px 14px;font-size:13px}
