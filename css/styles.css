@@ -479,6 +479,19 @@ html[data-icons="ink"] .dock .app-ic:not(.dock-add) .sq .ic-hand{width:36px;heig
 :root:not([data-iconset="normal"]) #home .date,.clock .date{font-size:31px;line-height:1}
 :root:not([data-iconset="normal"]) .sheet{border:var(--pen)}
 :root:not([data-iconset="normal"]) .dock{border:var(--pen);border-radius:var(--wob-a)}
-:root:not([data-iconset="normal"]) :is(.theme-pick button,.icon-pick button){border:var(--pen);border-radius:var(--wob-s)}
-:root:not([data-iconset="normal"]) :is(.theme-pick button,.icon-pick button)[aria-pressed="true"]{border-color:var(--ink);box-shadow:2px 2px 0 var(--ink)}
+:root:not([data-iconset="normal"]) :is(.theme-pick button,.icon-pick button,.icon-set button){border:var(--pen);border-radius:var(--wob-s)}
+:root:not([data-iconset="normal"]) :is(.theme-pick button,.icon-pick button,.icon-set button)[aria-pressed="true"]{border-color:var(--ink);box-shadow:2px 2px 0 var(--ink)}
 :root:not([data-iconset="normal"]) :is(.theme-pick .sw i,.icon-pick .pv){border-radius:var(--wob-s)}
+/* end of doodle look */
+
+/* icon set picked in Settings: doodle (default) or Normal line icons; every icon holds both */
+.ic .is-line{display:none}
+html[data-iconset="normal"] .ic .is-doodle{display:none}
+html[data-iconset="normal"] .ic .is-line{display:inline}
+.icon-set{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px 10px 0}
+.icon-set button{display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 6px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:13px}
+.icon-set button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.icon-set .ic{width:22px;height:22px}
+.icon-set .is-line{display:inline}
+.icon-set [data-set-pick="doodle"] .is-line,.icon-set [data-set-pick="normal"] .is-doodle{display:none!important}
+.icon-set [data-set-pick="doodle"] .is-doodle{display:inline!important}

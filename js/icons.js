@@ -84,18 +84,21 @@ export const ICONS = {
   zoomOut: `<circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /><line x1="8" x2="14" y1="11" y2="11" />`,
 };
 
-/** Full <svg> for an icon name. */
 /** Inline style for an app tile: solid color, white icon. tint is warm | red | blue | green | violet | teal | pink | navy | gray. */
 export const tile = tint => `background:var(--tint-${tint || "gray"}-solid);color:#fff;--tc:var(--tint-${tint || "gray"}-solid)`;
-const outline = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
-/** Full <svg> for an icon name: hand-drawn (doodle style) when we have one, otherwise the outline icon. */
-export const svg = (name, cls = "") => {
-  const d = HAND_UI[name === "redo2" ? "undo2" : name] || HAND[name];
-  return d ? `<svg class="ic ic-hand ${cls}" viewBox="${d[0]}"${name === "redo2" ? ' style="transform:scaleX(-1)"' : ""} aria-hidden="true">${d[1]}</svg>` : outline(name, cls);
-};
+// Every icon carries both sets: the doodle one and the Normal line one. CSS shows the set picked in
+// Settings (html[data-iconset]), so switching changes every open screen at once, no redraw needed.
+const LINE_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
+function both(name, cls, d) {
+  const doodle = d ? `<svg class="is-doodle" viewBox="${d[0]}">${d[1]}</svg>` : `<svg class="is-doodle" ${LINE_ATTRS} stroke-width="2">${ICONS[name] || ""}</svg>`;
+  const line = LINE[name] ? `<svg class="is-line" ${LINE_ATTRS}>${LINE[name]}</svg>` : `<svg class="is-line" ${LINE_ATTRS}>${ICONS[name] || ""}</svg>`;
+  return `<svg class="ic ic-hand ${cls}" viewBox="0 0 24 24" aria-hidden="true">${doodle}${line}</svg>`;
+}
+/** Full <svg> for an icon name, in both the doodle and the Normal set. */
+export const svg = (name, cls = "") => both(name, cls, HAND_UI[name] || HAND[name]);
+/** App-tile icon: the bigger tile drawing when there is one. */
+export const appSvg = (name, cls = "") => both(name, `ic-app ${cls}`, HAND[name] || HAND_UI[name]);
 
 import { HAND } from "./hand-icons.js";
 import { HAND_UI } from "./hand-ui.js";
-/** App-tile icon: the hand-drawn glyph when there is one, otherwise the outline icon. */
-export const handSvg = (name, cls = "") => `<svg class="ic ic-app ic-hand ${cls}" viewBox="${HAND[name][0]}" aria-hidden="true">${HAND[name][1]}</svg>`;
-export const appSvg = (name, cls = "") => HAND[name] ? handSvg(name, cls) : svg(name, `ic-app ${cls}`);
+import { LINE } from "./line-icons.js";

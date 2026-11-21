@@ -118,7 +118,8 @@ if ("serviceWorker" in navigator) {
       const reg = await navigator.serviceWorker.register("sw.js");
       let wantReload = false;
       const offer = w => toast("An update is ready.", { label: "Reload", run: () => { wantReload = true; w.postMessage("skipWaiting"); } });
-      if (hadController && reg.waiting) offer(reg.waiting);
+      // an update that was already waiting when the app opened goes in right away: nothing is open yet to lose
+      if (hadController && reg.waiting) { wantReload = true; reg.waiting.postMessage("skipWaiting"); }
       reg.addEventListener("updatefound", () => {
         const w = reg.installing;
         w && w.addEventListener("statechange", () => { if (w.state === "installed" && hadController) offer(w); });
@@ -162,6 +163,13 @@ function setIcons(k) {
   if (k === "solid") delete document.documentElement.dataset.icons; else document.documentElement.dataset.icons = k;
   try { localStorage.setItem("icons", k); } catch (e) { /* still applied for this visit */ }
 }
+const ICON_SETS = [["doodle", "Doodle"], ["normal", "Normal"]];
+function currentSet() { try { return localStorage.getItem("iconset") || "doodle"; } catch (e) { return "doodle"; } }
+function setIconSet(k) {
+  if (k === "doodle") delete document.documentElement.dataset.iconset; else document.documentElement.dataset.iconset = k;
+  try { localStorage.setItem("iconset", k); } catch (e) { /* still applied for this visit */ }
+}
+const setsHtml = () => ICON_SETS.map(([k, name]) => `<button type="button" data-set-pick="${k}" aria-pressed="${k === currentSet()}">${svg("pencil")}${name}</button>`).join("");
 const looksHtml = () => ICON_STYLES.map(([k, name]) => `<button type="button" data-icons-pick="${k}" aria-pressed="${k === currentIcons()}">${iconPreview(k)}${name}</button>`).join("");
 const iconPreview = k => `<span class="pv" style="${k === "solid" ? "background:var(--tint-warm-solid);color:#fff" : k === "color" ? "color:var(--tint-warm-solid)" : "color:var(--ink)"}">${appSvg("sun")}</span>`;
 function currentTheme() { try { return localStorage.getItem("theme") || "paper"; } catch (e) { return "paper"; } }
@@ -205,18 +213,23 @@ async function drawSettings() {
   $("#sheet-body").innerHTML = `
     <div class="group-h">Sync</div><div class="group" id="st-sync-group">${syncRowHtml()}</div>
     <div class="group-h">Theme</div><div class="group"><div class="theme-pick" id="st-theme">${THEMES.map(([k, name, sw]) => `<button type="button" data-theme-pick="${k}" aria-pressed="${k === currentTheme()}"><span class="sw">${sw.map(c => `<i style="background:${c}"></i>`).join("")}</span>${name}</button>`).join("")}</div></div>
-    <div class="group-h">Icons</div><div class="group"><div class="icon-pick" id="st-icons">${looksHtml()}</div></div>
+    <div class="group-h">Icons</div><div class="group"><div class="icon-set" id="st-iconset">${setsHtml()}</div><div class="icon-pick" id="st-icons">${looksHtml()}</div></div>
     <div id="st-home">${picker}</div>
     ${installRow}
     ${hiddenRows()}
     <div class="group-h">About</div>
-    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide and Streamline Freehand (CC BY 4.0).</div></div></div></div>`;
+    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. <a href="https://www.streamlinehq.com/icons" target="_blank" rel="noopener">Free icons from Streamline</a> (Freehand and Ultimate Regular sets, CC BY 4.0), plus Lucide.</div></div></div></div>`;
   wireSync();
   const inst = $("#st-install"); if (inst) inst.onclick = () => $("#install-btn").click();
   $("#st-theme").onclick = e => {
     const b = e.target.closest("[data-theme-pick]"); if (!b) return;
     setTheme(b.dataset.themePick);
     $("#st-theme").querySelectorAll("[data-theme-pick]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  };
+  $("#st-iconset").onclick = e => {
+    const b = e.target.closest("[data-set-pick]"); if (!b) return;
+    setIconSet(b.dataset.setPick);
+    $("#st-iconset").querySelectorAll("[data-set-pick]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
   };
   $("#st-icons").onclick = e => {
     const b = e.target.closest("[data-icons-pick]"); if (!b) return;

@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update (2.7 -> 2.8, and so on);
 // installed copies then show "An update is ready" and reload into the new version.
-const VERSION = "4.5";
+const VERSION = "4.7";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 // Python for the Code app. Keep this in step with the version in js/apps/code/py-worker.js.
@@ -20,6 +20,7 @@ const FILES = [
   "js/icons.js",
   "js/hand-icons.js",
   "js/hand-ui.js",
+  "js/line-icons.js",
   "js/capture.js",
   "js/home.js",
   "js/agenda.js",
@@ -81,8 +82,9 @@ const isLocal = ["localhost", "127.0.0.1"].includes(self.location.hostname);
 self.addEventListener("install", event => {
   event.waitUntil((async () => {
     const cache = await caches.open(SHELL);
-    await cache.addAll(FILES);
-    await Promise.all(OPTIONAL.map(f => cache.add(f).catch(() => {})));
+    // cache: "reload" skips the browser's own HTTP cache, so an update never saves last version's files
+    await cache.addAll(FILES.map(f => new Request(f, { cache: "reload" })));
+    await Promise.all(OPTIONAL.map(f => cache.add(new Request(f, { cache: "reload" })).catch(() => {})));
   })());
 });
 
@@ -153,7 +155,7 @@ self.addEventListener("fetch", event => {
   if (req.mode === "navigate") {
     event.respondWith((async () => {
       if (isLocal) { try { return await fetch(req); } catch (e) { /* fall through to cache */ } }
-      const cached = await caches.match("index.html");
+      const cached = await (await caches.open(SHELL)).match("index.html");
       return cached || fetch(req);
     })());
     return;
@@ -165,7 +167,8 @@ self.addEventListener("fetch", event => {
       try { const res = await fetch(req); if (res.ok) (await caches.open(SHELL)).put(req, res.clone()); return res; }
       catch (e) { const hit = await caches.match(req); if (hit) return hit; throw e; }
     }
-    const hit = await caches.match(req, { ignoreSearch: true });
+    // only this version's saved files, so an older copy left in another cache is never served
+    const hit = await (await caches.open(SHELL)).match(req, { ignoreSearch: true });
     return hit || fetch(req);
   })());
 });
