@@ -58,3 +58,8 @@
 .td-prep .ap-row{min-height:46px;padding:8px 12px}
 .td-prep .ap-row + .ap-row,.td-prep-k + .ap-row{border-top:0}
 .td-prep .ap-row .t{font-size:14px}
+
+/* quick note while a class is on */
+.td-qn{display:flex;gap:8px;align-items:center;padding:0 12px 10px 32px}
+.td-qn .field{flex:1;padding:8px 11px;font-size:15px;border-radius:10px}
+.td-qn .pill-btn{padding:8px 12px}

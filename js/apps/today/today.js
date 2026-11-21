@@ -14,6 +14,7 @@ import { status as classStatus, colorOf, fmtTime, inTime, meetingsOn } from "../
 import { dueLabel } from "../deadlines/parse.js";
 import { forToday as resetToday, togglePin } from "../reset/reset.js";
 import { loadLists, byId } from "../../lists.js";
+import { openClassSheet, wireNoteBox } from "../schedule/class.js";
 
 // which list Today shows ("all" or a list id). Per device, so the laptop and phone can differ.
 let listPick = "all";
@@ -107,7 +108,8 @@ function classBlock(g) {
       rows.push(row("first class tomorrow", f, `${fmtTime(f.meeting.start)}${f.meeting.room ? " · " + f.meeting.room : ""} · ${g.tomorrowClasses.length} class${g.tomorrowClasses.length === 1 ? "" : "es"} tomorrow`), prep(f));
     } else rows.push(`<div class="ap-row"><span class="grow"><span class="t">No classes tomorrow</span></span></div>`);
   } else {
-    if (cls.now) rows.push(row("now", cls.now, `ends in ${inTime(cls.now.end - now)}${cls.now.meeting.room ? " · " + cls.now.meeting.room : ""}`));
+    if (cls.now) rows.push(row("now", cls.now, `ends in ${inTime(cls.now.end - now)}${cls.now.meeting.room ? " · " + cls.now.meeting.room : ""}`),
+      `<form class="td-qn" data-course="${esc(cls.now.course.code)}" autocomplete="off"><input class="field" placeholder="Quick note for ${esc(cls.now.course.code)}…" aria-label="Quick note for ${esc(cls.now.course.code)}"><button class="pill-btn secondary" type="submit">Save</button></form>`);
     if (cls.next) rows.push(row("next", cls.next, `${fmtTime(cls.next.meeting.start)} · in ${inTime(cls.next.start - now)}${cls.next.meeting.room ? " · " + cls.next.meeting.room : ""}`), prep(cls.next));
     const left = cls.today.filter(x => x.start > now).length - (cls.next ? 1 : 0);
     if (left > 0) rows.push(`<div class="ap-row"><span class="grow"><span class="s">+ ${left} more class${left === 1 ? "" : "es"} later today</span></span></div>`);
@@ -175,7 +177,11 @@ async function renderNow() {
 
   if (g.soon.length) parts.push(`<section class="ap-sec"><h3>Coming up<span class="n">${g.soon.length}</span></h3><div class="ap-card">${g.soon.map(i => itemRow(i, now)).join("")}</div></section>`);
 
+  // the minute timer redraws Today: keep a half-typed class note
+  const qn = $(".td-qn input"), draft = qn ? qn.value : "", typing = qn && document.activeElement === qn;
   $("#td-body").innerHTML = parts.join("");
+  const qn2 = $(".td-qn input");
+  if (qn2) { qn2.value = draft; if (typing) qn2.focus(); wireNoteBox(qn2.form, { toast: ctx0.toast }); }
   $("#td-add").onclick = async () => { const cap = await import("../../capture.js"); cap.open(); };
 }
 
@@ -195,7 +201,7 @@ async function mount(el, ctx) {
     const fb = e.target.closest("[data-file]");
     if (fb) { const m = await import("../milestones/milestones.js"); m.openAttachment(fb.dataset.file); return; }
     const cl = e.target.closest("[data-class]");
-    if (cl) { const m = await import("../schedule/class.js"); m.openClassSheet(root, cl.dataset.class, { toast: ctx0.toast }); return; }
+    if (cl) { openClassSheet(root, cl.dataset.class, { toast: ctx0.toast }); return; }
     const lp = e.target.closest("[data-list]");
     if (lp) { setPick(lp.dataset.list); render(); return; }
     const go = e.target.closest("[data-go]");

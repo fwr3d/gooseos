@@ -22,3 +22,25 @@
 .cl-doc{padding-left:30px}
 .cl-doc .t{font-weight:500}
 .cl-empty{font-size:13px;color:var(--muted);margin:0 2px}
+
+/* quick notes */
+.cl-qn{display:flex;gap:8px;align-items:flex-end}
+.cl-qn .field{flex:1;resize:vertical;min-height:44px;font-size:15px;padding:9px 11px}
+.cl-notes{display:flex;flex-direction:column}
+.cl-notes:empty{display:none}
+.cl-note{display:flex;align-items:flex-start;gap:8px;padding:8px 2px;font-size:14px}
+.cl-note + .cl-note{border-top:1px solid var(--line)}
+.cl-note-t{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.cl-note-at{flex:none;font-size:12px;color:var(--muted);padding-top:2px}
+.cl-note-x{flex:none;width:26px;height:26px}
+.cl-note-x .ic{width:14px;height:14px}
+
+/* in an exam plan's workspace (Milestones) */
+.cl-ms{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.cl-ms-list{max-height:320px;overflow:auto}
+.cl-ms-day{padding:8px 12px}
+.cl-ms-day + .cl-ms-day{border-top:1px solid var(--line)}
+.cl-ms-dh{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:2px}
+.cl-ms-n{display:flex;gap:8px;align-items:baseline;font-size:13.5px;line-height:1.45;padding:2px 0}
+.cl-ms-n span{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.cl-ms-n small{flex:none;font-size:11.5px;color:var(--faint)}

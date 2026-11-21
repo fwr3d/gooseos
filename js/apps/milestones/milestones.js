@@ -16,6 +16,7 @@ import * as sync from "../../sync.js";
 import { openViewer, viewFile } from "../../viewer.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
 import { listDocs, saveDoc, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
+import { classNotesInto } from "../schedule/class.js";
 
 const tplLabel = m => m.templateName || TEMPLATES[m.template]?.label || "Custom";
 
@@ -289,6 +290,8 @@ function drawWorkspace() {
       ${myDocs.length || myFiles.length ? "" : `<label class="ws-empty ws-dropzone">${svg("upload")}<b>Drop files here</b><span>Or <u>choose files</u>, or paste with Ctrl+V. Whole folders work too.${step ? "" : " A rubric goes on the submit step by itself."}</span><input type="file" class="ws-fpick2" multiple hidden></label>`}
     </div>
     ${also.length ? `<button class="ws-also" data-act="ws-all">Also on the whole ${whole}: ${esc(also.join(", "))}</button>` : ""}`;
+  // notes from class (Today / the class sheet), read only, on the whole exam
+  if (!step) classNotesInto(box, m);
 }
 /** Read a note or guide in full; Edit and Copy from here. */
 function openReader(doc, { onEdit }) {
