@@ -384,3 +384,29 @@ body:has(.view:not([hidden]):not([data-app="whiteboard"]):not([data-app="syllabu
 .theme-pick button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
 .theme-pick .sw{display:flex;gap:3px}
 .theme-pick .sw i{width:14px;height:14px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--line)}
+
+/* ---------- full-screen viewer (files and notes) ---------- */
+.fv{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;background:var(--page);color:var(--ink)}
+.fv-bar{display:flex;align-items:center;gap:10px;flex:none;
+  padding:calc(8px + env(safe-area-inset-top,0px)) max(10px,env(safe-area-inset-right,0px)) 8px max(6px,env(safe-area-inset-left,0px));
+  background:var(--panel);border-bottom:1px solid var(--line)}
+.fv-back{display:flex;align-items:center;border:0;background:transparent;color:var(--accent);font-size:15px;font-weight:500;padding:6px 8px 6px 2px;border-radius:8px;flex:none}
+.fv-back .ic{width:22px;height:22px}
+.fv-title{flex:1;min-width:0;display:flex;flex-direction:column}
+.fv-title b{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fv-title span{font-size:12px;color:var(--muted)}
+.fv-acts{display:flex;gap:6px;flex:none}
+.fv-act{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--line-strong);background:transparent;color:var(--ink);font-size:13px}
+.fv-act:hover{background:var(--surface-2)}
+.fv-act .ic{width:15px;height:15px}
+@media (max-width:560px){.fv-act span{display:none}.fv-act{width:34px;padding:0;justify-content:center}}
+.fv-body{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+.fv-media{min-height:100%;display:grid;place-items:center;padding:16px}
+.fv-media img,.fv-media video{max-width:100%;max-height:calc(100dvh - 110px);object-fit:contain;border-radius:8px}
+.fv-media audio{width:min(520px,100%)}
+.fv-text{margin:0;padding:18px max(16px,env(safe-area-inset-left,0px));font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.fv-doc{max-width:720px;margin:0 auto;padding:24px max(18px,env(safe-area-inset-left,0px)) calc(40px + env(safe-area-inset-bottom,0px))}
+.fv .fv-doc.ws-md{max-height:none;overflow:visible;font-size:15px;line-height:1.65;color:var(--ink)}
+.fv-msg,.fv-wait{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:13.5px}
+.fv-msg b{color:var(--ink);font-weight:500;font-size:15px}
+.fv-msg .ic{width:36px;height:36px;color:var(--faint)}

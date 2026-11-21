@@ -12,6 +12,7 @@ import { dueLabel, toLocalInput } from "../deadlines/parse.js";
 import { knownCourses, courseColor } from "../deadlines/deadlines.js";
 import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
 import * as files from "../../files.js";
+import { openViewer, viewFile } from "../../viewer.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
 import { listDocs, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
 
@@ -27,7 +28,7 @@ function submitStep(m) {
 export async function openAttachment(id) {
   const f = await files.get(id); if (!f) return;
   if (files.isPdf(f)) { location.hash = `pdf/${encodeURIComponent(id)}`; return; }
-  try { await files.openInTab(id); } catch (e) { if (ctx0) ctx0.toast(files.errorText(e)); }
+  viewFile(id, { toast: ctx0 ? ctx0.toast : null });
 }
 
 const APP = "milestones";
@@ -285,21 +286,13 @@ function drawWorkspace() {
 }
 /** Read a note or guide in full; Edit and Copy from here. */
 function openReader(doc, { onEdit }) {
-  const back = document.createElement("div"); back.className = "ap-back";
-  back.innerHTML = `<div class="ap-sheet ms-sheet ws-reader" role="dialog" aria-modal="true" aria-label="${esc(doc.title)}">
-    <div class="ws-rhead"><div><div class="ms-meta">${esc(KINDS[doc.kind] || "Note")} · edited ${esc(ago(doc.updated || doc.created))}</div><h2>${esc(doc.title)}</h2></div>
-      <button class="icon-btn" data-r="close" aria-label="Close">${svg("x")}</button></div>
-    <div class="ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</div>
-    <div class="acts"><span></span><span style="display:flex;gap:8px"><button class="ms-ob" data-r="copy">${svg("copy")}Copy text</button><button class="ms-ob" data-r="edit">${svg("pencilLine")}Edit</button></span></div>
-  </div>`;
-  root.appendChild(back);
-  const close = () => back.remove();
-  back.addEventListener("click", async e => {
-    if (e.target === back) return close();
-    const r = e.target.closest("[data-r]")?.dataset.r;
-    if (r === "close") close();
-    else if (r === "copy") ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead.");
-    else if (r === "edit") { close(); onEdit(); }
+  openViewer({
+    title: doc.title, sub: `${KINDS[doc.kind] || "Note"} · edited ${ago(doc.updated || doc.created)}`,
+    actions: [
+      { label: "Copy text", icon: "copy", run: async () => ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead.") },
+      { label: "Edit", icon: "pencilLine", run: ({ close }) => { close(); onEdit(); } },
+    ],
+    render(body) { body.innerHTML = `<article class="fv-doc ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</article>`; },
   });
 }
 /** For the doc editor: builds the prompt for a guide or practice questions on this step. */

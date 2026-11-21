@@ -1,7 +1,7 @@
 // Keeps GooseOS's files on the device so it opens without internet.
 // Change VERSION whenever you publish an update (2.7 -> 2.8, and so on);
 // installed copies then show "An update is ready" and reload into the new version.
-const VERSION = "3.6";
+const VERSION = "3.7";
 const SHELL = `shell-${VERSION}`;
 const FONTS = "fonts";
 // Python for the Code app. Keep this in step with the version in js/apps/code/py-worker.js.
@@ -25,6 +25,7 @@ const FILES = [
   "js/feed.js",
   "js/lists.js",
   "js/files.js",
+  "js/viewer.js",
   "js/apps/transfer/transfer.js",
   "js/apps/transfer/transfer.css",
   "js/apps/pdf/pdf.js",
