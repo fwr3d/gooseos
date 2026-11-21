@@ -426,7 +426,7 @@ body:has(.view:not([hidden]):not([data-app="whiteboard"]):not([data-app="syllabu
 
 /* hand-drawn app icons: three looks, picked in Settings (html[data-icons]) */
 .ic-hand{flex:none}
-.ic-hand path{fill:currentColor}
+.ic-hand path:not([fill]){fill:currentColor}
 .app-ic .sq .ic-hand{width:34px;height:34px}
 .dock .app-ic .sq .ic-hand{width:30px;height:30px}
 #apps .app-ic .sq .ic-hand{width:34px;height:34px}
