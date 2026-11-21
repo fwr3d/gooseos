@@ -136,9 +136,9 @@ async function render() {
 }
 
 function paintTabs() {
-  $("#cd-tabs").innerHTML = progs.map(p => `<button class="cd-tab ${p.id === cur.id ? "on" : ""}" role="tab" aria-selected="${p.id === cur.id}" data-prog="${p.id}">${esc(p.files[0].name)}</button>`).join("")
+  $("#cd-tabs").innerHTML = progs.map(p => `<button class="cd-tab ${p.id === cur.id ? "on" : ""}" role="tab" aria-selected="${p.id === cur.id}" data-prog="${p.id}">${esc(p.files[0].name)}${p.id === cur.id ? `<span class="cd-tab-x" data-del role="button" aria-label="Delete program" title="Delete program">${svg("x")}</span>` : ""}</button>`).join("")
     + `<button class="cd-tab add" id="cd-new" aria-label="New program">${svg("plus")}</button>`;
-  $("#cd-tabs").querySelectorAll("[data-prog]").forEach(b => b.onclick = () => openProg(b.dataset.prog));
+  $("#cd-tabs").querySelectorAll("[data-prog]").forEach(b => b.onclick = e => e.target.closest("[data-del]") ? delProg() : openProg(b.dataset.prog));
   $("#cd-new").onclick = newProgSheet;
   const on = $("#cd-tabs .on"); if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
@@ -584,6 +584,17 @@ function confirmSheet(title, text, label, go) {
     <div class="acts"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn danger">${esc(label)}</button></div>`);
   f.onsubmit = async e => { e.preventDefault(); close(); await go(); };
 }
+function delProg() {
+  if (!cur) return;
+  const main = cur.files[0];
+  confirmSheet(`Delete ${main.name}?`, `This deletes its code${data.length ? ` and ${data.length} data file${data.length === 1 ? "" : "s"}` : ""} on all your devices. It can't be undone.`, "Delete", async () => {
+    if (runner.running()) runner.stop("stopped");
+    const id = cur.id;
+    for (const d of data) await files.remove(d.id).catch(() => {});
+    await store.remove(APP, id); fresh.delete(id);
+    cur = null; clearOut(); await loadProgs(); cur = progs[progs.length - 1] || null; setRoute(); render();
+  });
+}
 function progMenu() {
   if (!cur) return;
   const main = cur.files[0];
@@ -595,13 +606,7 @@ function progMenu() {
       await store.put(APP, id, { files: cur.files.map((f, i) => ({ name: i ? f.name : `${base}_copy.py`, text: f.text })), active: cur.active === main.name ? `${base}_copy.py` : cur.active, input: cur.input || "", tests: (cur.tests || []).map(t => ({ ...t })), created: now, updated: now });
       cur = { id }; setRoute(); clearOut(); render();
     } },
-    { icon: "x", label: "Delete program", danger: true, run: () => confirmSheet(`Delete ${main.name}?`, `This deletes its code${data.length ? ` and ${data.length} data file${data.length === 1 ? "" : "s"}` : ""} on all your devices. It can't be undone.`, "Delete", async () => {
-      if (runner.running()) runner.stop("stopped");
-      const id = cur.id;
-      for (const d of data) await files.remove(d.id).catch(() => {});
-      await store.remove(APP, id); fresh.delete(id);
-      cur = null; clearOut(); await loadProgs(); cur = progs[progs.length - 1] || null; setRoute(); render();
-    }) },
+    { icon: "x", label: "Delete program", danger: true, run: delProg },
   ]);
 }
 function pyMenu(name) {

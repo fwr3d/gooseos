@@ -5,7 +5,12 @@
   --cd-code-bg:color-mix(in srgb,var(--accent-soft) 35%,var(--panel));--cd-err-bg:color-mix(in srgb,var(--bad) 12%,transparent)}
 @media (prefers-color-scheme:dark){.cd{--cd-kw:#b69cff;--cd-str:#6ee7a0;--cd-num:#fbbf66;--cd-com:#7c869b;--cd-fn:#8fb0ff;--cd-dec:#f9a8d4;
   --cd-code-bg:color-mix(in srgb,#000 22%,var(--panel))}}
-.cd-body{max-width:1120px}
+.cd-body{max-width:1600px;min-height:100%;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+/* the window fills the screen; the extra height goes to the editor */
+.cd-win{flex:1}
+.cd-main{flex:1}
+.cd-ed{flex:1}
+.cd-layer{min-height:100%}
 .cd-dim{color:var(--muted);font-weight:500}
 .cd-status{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
 
@@ -27,6 +32,10 @@
 .cd-tab{flex:none;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:99px;padding:5px 12px;font-size:13px;font-weight:var(--w-strong);font-family:var(--cd-mono);white-space:nowrap}
 .cd-tab:hover{background:var(--accent-soft)}
 .cd-tab.on{background:var(--accent-soft);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.cd-tab.on{display:inline-flex;align-items:center;gap:4px;padding-right:6px}
+.cd-tab-x{display:grid;place-items:center;width:18px;height:18px;border-radius:99px;color:var(--muted)}
+.cd-tab-x:hover{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--ink)}
+.cd-tab-x .ic{width:12px;height:12px}
 .cd-tab.add{padding:4px 8px;display:grid;place-items:center}
 .cd-tab.add .ic{width:16px;height:16px}
 .cd-stop .ic{width:15px;height:15px}
