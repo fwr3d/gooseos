@@ -148,6 +148,13 @@ export function start() {
 }
 
 /* ---------- small helpers for the apps ---------- */
+/** "" once it's in your storage; otherwise what's going on with it. */
+export function statusText(f) {
+  if (f.uploaded) return "";
+  if (!sync.signedIn()) return "on this device only";
+  if (f.error) return "upload failed, trying again";
+  return "uploading…";
+}
 export const isPdf = f => /pdf/i.test(f.type || "") || /\.pdf$/i.test(f.name || "");
 export const isImage = f => /^image\//i.test(f.type || "");
 export function sizeText(n) {

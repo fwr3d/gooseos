@@ -12,6 +12,7 @@ import { dueLabel, toLocalInput } from "../deadlines/parse.js";
 import { knownCourses, courseColor } from "../deadlines/deadlines.js";
 import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
 import * as files from "../../files.js";
+import * as sync from "../../sync.js";
 import { openViewer, viewFile } from "../../viewer.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
 import { listDocs, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
@@ -254,7 +255,7 @@ function drawWorkspace() {
   };
   const fileRow = f => `<div class="ws-row ms-frow" data-fid="${esc(f.id)}">
       <span class="ws-ic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
-      <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), f.uploaded ? "" : "uploading…"].filter(Boolean).join(" · "))}</span></button>
+      <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), files.statusText(f)].filter(Boolean).join(" · "))}</span></button>
       <span class="ms-tools ws-ftools">
         <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
           <option value="">Whole ${whole}</option>
@@ -721,6 +722,15 @@ async function mount(el, ctx) {
     addOpen = false; renderDetail(id);
     if (when) ctx0.toast(`Added for ${dueLabel(when)}. Use its calendar icon to move it.`);
   });
+  const refreshFileLines = async () => {
+    if (!current || !ws) return;
+    for (const row of root.querySelectorAll(".ms-frow[data-fid]")) {
+      const f = await files.get(row.dataset.fid); const line = row.querySelector(".ms-fopen .s");
+      if (f && line) line.textContent = [files.sizeText(f.size), files.statusText(f)].filter(Boolean).join(" · ");
+    }
+  };
+  store.onChange(ch => { if (ch.app === "files" && current) refreshFileLines(); });
+  sync.onStatus(() => refreshFileLines());
   store.onChange(ch => { if ((ch.app === APP || (ch.app === "docs" && current)) && ctx0.isActive() && ch.source === "remote") (current ? renderDetail(current) : renderList()); });
 }
 
