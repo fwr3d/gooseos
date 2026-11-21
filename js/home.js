@@ -37,6 +37,8 @@ export const SMALL = {
     let st = null; try { st = await (await import("./apps/schedule/schedule.js")).status(); } catch (e) { /* no Schedule */ }
     const pick = st && (st.now || st.next || st.nextDay);
     el.classList.add("h-class");
+    // in class: open that class's sheet (room, what's due, the plan) instead of the whole schedule
+    if (pick && st.now === pick) el.dataset.open = `schedule/class/${encodeURIComponent(pick.course.id)}`;
     if (!pick) { el.innerHTML = `<span class="h-k">Classes</span><span class="h-t">${st && st.courses.length ? "No more classes this week" : "Add your classes in Schedule"}</span>`; return; }
     const big = st.now === pick ? "Now" : fmtTime(pick.start).replace(/\s?[AP]M$/i, "");
     el.innerHTML = `<span class="h-k">${st.now === pick ? "In class" : "Next class"}</span><span class="h-big">${esc(big)}</span>

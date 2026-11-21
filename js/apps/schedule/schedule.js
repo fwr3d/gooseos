@@ -415,7 +415,14 @@ async function mount(el, ctx) {
   store.onChange(ch => { if ((ch.app === COURSES || ch.app === APP) && ctx0.isActive()) render(); });
   await render();
 }
-function show() { render(); clearInterval(timer); timer = setInterval(() => { if (ctx0.isActive()) render(); }, 60000); }
+/** show("") the schedule · show("class/<course id>") the schedule with that class's sheet open */
+function show(arg) {
+  const a = typeof arg === "string" ? arg : "";
+  if (a.startsWith("class/")) {
+    history.replaceState(null, "", `#${APP}`);
+    import("./class.js").then(m => m.openClassSheet(root, decodeURIComponent(a.slice(6)), { toast: ctx0.toast }));
+  }
+  render(); clearInterval(timer); timer = setInterval(() => { if (ctx0.isActive()) render(); }, 60000); }
 function hide() { clearInterval(timer); }
 
 /** Home widget: what's on now, what's next. */

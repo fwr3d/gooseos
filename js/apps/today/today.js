@@ -100,7 +100,7 @@ function classBlock(g) {
   if (!cls.courses.length) return `<button class="ap-card ap-row" data-go="#schedule"><span class="tile-ic" style="${tile("blue")}">${svg("calendar")}</span><span class="grow"><span class="t">Add your classes</span><span class="s">Then Today shows what's on now and next.</span></span>${svg("chevronRight")}</button>`;
   const rows = [];
   const prep = x => x && x === g.nextCls && g.prep.length ? `<div class="td-prep"><span class="td-prep-k">Before ${esc(x.course.code)}</span>${g.prep.map(i => itemRow(i, now)).join("")}</div>` : "";
-  const row = (label, x, sub) => `<button class="ap-row" data-go="#schedule"><span class="sc-dot" style="background:${colorOf(x.course)}"></span><span class="grow"><span class="t">${esc(x.course.code)} <span class="td-kind">${esc(label)}</span></span><span class="s">${esc(sub)}</span></span></button>`;
+  const row = (label, x, sub) => `<button class="ap-row" data-class="${esc(x.course.id)}"><span class="sc-dot" style="background:${colorOf(x.course)}"></span><span class="grow"><span class="t">${esc(x.course.code)} <span class="td-kind">${esc(label)}</span></span><span class="s">${esc(sub)}</span></span></button>`;
   if (evening) {
     if (g.tomorrowClasses.length) {
       const f = g.tomorrowClasses[0];
@@ -194,6 +194,8 @@ async function mount(el, ctx) {
   el.addEventListener("click", async e => {
     const fb = e.target.closest("[data-file]");
     if (fb) { const m = await import("../milestones/milestones.js"); m.openAttachment(fb.dataset.file); return; }
+    const cl = e.target.closest("[data-class]");
+    if (cl) { const m = await import("../schedule/class.js"); m.openClassSheet(root, cl.dataset.class, { toast: ctx0.toast }); return; }
     const lp = e.target.closest("[data-list]");
     if (lp) { setPick(lp.dataset.list); render(); return; }
     const go = e.target.closest("[data-go]");
