@@ -139,6 +139,50 @@ export function shakyReviewDate(steps, now, due) {
   return Math.max(t, now + 30 * 60e3);
 }
 
+/* ---------- breaks ----------
+   Breaks and days off come from Schedule's semester ({ label, from, to }). An open step on
+   one moves to the nearest open day before the exam (earlier wins a tie), keeping its time,
+   and skipped days (Fri/Sat) are only used when nothing else is close. Left alone: finished
+   steps, steps you dated yourself (pinned), and the final review, which belongs to the night before. */
+const addDays = (t, k) => { const d = new Date(t); d.setDate(d.getDate() + k); return +d; };
+export function offBreaks(steps, now, due, breaks = [], blocked = DEFAULT_BLOCKED) {
+  const off = new Map();
+  for (const b of breaks || []) {
+    if (!b || !b.from) continue;
+    for (let d = +startOfDay(b.from), end = +startOfDay(b.to || b.from), n = 0; d <= end && n < 120; d = addDays(d, 1), n++) off.set(d, b.label || "Break");
+  }
+  if (!off.size) return { steps, moved: [] };
+  const first = +startOfDay(now), dueDay = +startOfDay(due);
+  const last = new Date(due).getHours() >= 12 ? dueDay : addDays(dueDay, -1);
+  const free = (d, strict) => !off.has(d) && d >= first && d <= last && !(strict && blocked.includes(new Date(d).getDay()));
+  const moved = [], dates = new Map(steps.map(s => [s.id, s.date]));
+  const stays = s => s.done || s.pinned || s.kind === "review" || s.kind === "night" || !off.has(+startOfDay(s.date));
+  const out = steps.map(s => {
+    if (stays(s)) return s;
+    const d0 = +startOfDay(s.date);
+    let pick = null;
+    for (const strict of [true, false]) {
+      for (let k = 1; k <= 60 && pick === null; k++) for (const d of [addDays(d0, -k), addDays(d0, k)]) if (free(d, strict)) { pick = d; break; }
+      if (pick !== null) break;
+    }
+    if (pick === null) return s;
+    const t = new Date(s.date), nd = new Date(pick); nd.setHours(t.getHours(), t.getMinutes(), 0, 0);
+    let ms = Math.min(+nd, due - 3600e3);
+    // another step already at that time on that day: go right before it, the way study blocks chain
+    const len = (s.estMin || 45) * 60e3;
+    for (let n = 0; n < 8; n++) {
+      const hit = steps.find(x => x.id !== s.id && !x.done && Math.abs(dates.get(x.id) - ms) < len && +startOfDay(dates.get(x.id)) === pick);
+      if (!hit) break;
+      ms = dates.get(hit.id) - len;
+    }
+    if (ms < now) ms = Math.min(now + 30 * 60e3, due);
+    dates.set(s.id, ms);
+    moved.push({ id: s.id, label: off.get(d0) });
+    return { ...s, date: ms, offBreak: off.get(d0) };
+  });
+  return { steps: moved.length ? out : steps, moved };
+}
+
 /** Steps for a template. Custom uses `lines`; your own templates pass `steps` ({ title, at, estMin }).
  *  (Exams have their own builder above.) */
 export function templateSteps(template, { lines = [], steps } = {}) {
@@ -177,5 +221,6 @@ export function replan(steps, now, due, blocked = DEFAULT_BLOCKED) {
   const k = open.length;
   if (k) placeSteps(open.map((s, i) => ({ ...s, at: k === 1 ? 0.5 : i / (k - 1) * 0.9 })), from, end, blocked)
     .forEach(s => byId.set(s.id, s.date));
-  return steps.map(s => (s.done ? s : { ...s, date: byId.get(s.id) }));
+  // a re-planned step isn't one you dated yourself anymore
+  return steps.map(s => { if (s.done) return s; const { pinned, offBreak, ...rest } = s; return { ...rest, date: byId.get(s.id) }; });
 }

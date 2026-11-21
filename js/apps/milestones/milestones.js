@@ -6,12 +6,13 @@
 //   Exam steps carry kind ("study" | "review"). Older plans may have "gather" | "first" | "quiz" | "practice" |
 //   "mistakes" | "cheat" | "night" | "again"; a finished "quiz" step there asks Got it / Shaky (rating "good" | "shaky").
 //   A Shaky study step or practice question adds one "again" step, { kind: "again", topic, ref: "step:<id>" | "q:<doc id>:<question key>" }.
+//   A step that sat on a Schedule break and was moved has offBreak: "<break name>"; one you dated yourself has pinned: true and isn't moved.
 // Each unfinished step is shared with Reminders and Today through agenda().
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
 import { dueLabel, toLocalInput } from "../deadlines/parse.js";
 import { knownCourses, courseColor } from "../deadlines/deadlines.js";
-import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
+import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate, offBreaks } from "./plan.js";
 import * as files from "../../files.js";
 import * as sync from "../../sync.js";
 import { openViewer, viewFile } from "../../viewer.js";
@@ -46,8 +47,22 @@ const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : 
 /* ---------- data ---------- */
 export async function loadMilestones() {
   const list = (await store.list(APP)).map(r => ({ id: r.id, ...r.data })).filter(m => m && Array.isArray(m.steps));
-  for (const m of list) await followDeadline(m);
+  const breaks = await loadBreaks();
+  for (const m of list) { await followDeadline(m); await followBreaks(m, breaks); }
   return list;
+}
+
+/** Breaks and days off from Schedule's semester. */
+async function loadBreaks() {
+  try { return ((await (await import("../schedule/schedule.js")).loadSemester()).breaks || []).filter(b => b && b.from); }
+  catch (e) { return []; }
+}
+/** Open steps sitting on a break move to the nearest open day (plan.js offBreaks). Returns the moved steps. */
+async function followBreaks(m, breaks) {
+  if (m.deadlineDone || !breaks.length) return [];
+  const r = offBreaks(m.steps, Date.now(), m.due, breaks, m.blockedDays || DEFAULT_BLOCKED);
+  if (r.moved.length) { m.steps = r.steps; await save(m); }
+  return r.moved;
 }
 const save = m => { const { id, deadlineDone, ...data } = m; return store.put(APP, id, data); };
 
@@ -137,6 +152,8 @@ async function renderDetail(id) {
   const raw = await store.get(APP, id);
   if (!raw) { ctx0.toast("That milestone isn't here anymore."); return renderList(); }
   const m = await followDeadline({ id, ...raw });
+  const movedOff = await followBreaks(m, await loadBreaks());
+  if (movedOff.length) ctx0.toast(`Moved ${movedOff.length === 1 ? "a step" : `${movedOff.length} steps`} off ${[...new Set(movedOff.map(x => x.label))].join(" and ")}.`);
   if (current !== id) { sel = null; openDoc = null; expanded = false; addOpen = false; }
   current = id;
   $("#ms-title").textContent = "";
@@ -167,7 +184,7 @@ async function renderDetail(id) {
     const ask = (s.kind === "study" || s.kind === "quiz") && s.done && !s.rating;
     const rated = s.rating ? `<button class="ms-tag ${s.rating === "good" ? "green" : "warm"}" data-act="rate-clear" title="Change how it went">${s.rating === "good" ? "got it" : "shaky"}</button>` : "";
     const hasAtt = onStep(s.id).length + docsOn(s.id).length > 0;
-    const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}</span>`;
+    const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}${s.offBreak ? `<span class="ms-moved"> · moved off ${esc(s.offBreak)}</span>` : ""}</span>`;
     return `<div class="ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${isSel ? "sel" : ""}" data-sid="${s.id}">
       <button class="ms-chk" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg(s.done ? "circleCheck" : "circle")}</button>
       <div class="grow"><span class="ms-ttl">${esc(s.title)}</span>${when}
@@ -395,6 +412,9 @@ async function openSheet({ edit, prefill = {} } = {}) {
   const startTpl = m.template || "custom";
   let template = startTpl, blocked = [...(m.blockedDays || DEFAULT_BLOCKED)];
   let mine = await loadTemplates();
+  const breaks = await loadBreaks();
+  /** A fresh plan, with steps that land on a break moved off it. */
+  const plan = (tpl, from, due, bl, o) => offBreaks(buildPlan(tpl, from, due, bl, o), from, due, breaks, bl).steps.sort((a, b) => a.date - b.date);
   const openCount = edit ? edit.steps.filter(s => !s.done).length : 0;
   const mineOf = k => mine.find(t => `u:${t.id}` === k);
   const back = document.createElement("div"); back.className = "ap-back";
@@ -461,7 +481,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
     const due = dueMs();
     if (!due) { box.innerHTML = `<div>Pick a due date to see the plan.</div>`; return; }
     if (due < Date.now()) { box.innerHTML = `<div>That due date has already passed.</div>`; return; }
-    const steps = buildPlan(template, Date.now(), due, blocked, opts());
+    const steps = plan(template, Date.now(), due, blocked, opts());
     box.innerHTML = steps.length ? steps.map(s => `<div><span>${esc(dueLabel(s.date))}</span>${esc(s.title)}</div>`).join("")
       : `<div>Write your steps above, one per line.</div>`;
   };
@@ -488,7 +508,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
       if (due !== edit.due && due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
       if (swapping()) {
         if (due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
-        const fresh = buildPlan(template, Date.now(), due, blocked, opts());
+        const fresh = plan(template, Date.now(), due, blocked, opts());
         if (!fresh.length) { err.textContent = "Add at least one step."; return; }
         const own = mineOf(template), { templateName, ...rest } = edit;
         await save({ ...rest, title, course, due, blockedDays: blocked, template, ...(own ? { templateName: own.name } : {}),
@@ -496,12 +516,12 @@ async function openSheet({ edit, prefill = {} } = {}) {
         close(); renderDetail(edit.id); ctx0.toast(`Switched to ${own ? own.name : TEMPLATES[template]?.label || "your list"}: ${fresh.length} new step${fresh.length === 1 ? "" : "s"}.`); return;
       }
       const changed = due !== edit.due || blocked.join() !== (edit.blockedDays || []).join();
-      const steps = changed ? replan(edit.steps, Date.now(), due, blocked) : edit.steps;
+      const steps = changed ? offBreaks(replan(edit.steps, Date.now(), due, blocked), Date.now(), due, breaks, blocked).steps : edit.steps;
       await save({ ...edit, title, course, due, blockedDays: blocked, steps });
       close(); renderDetail(edit.id); return;
     }
     if (due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
-    const steps = buildPlan(template, Date.now(), due, blocked, opts());
+    const steps = plan(template, Date.now(), due, blocked, opts());
     if (!steps.length) { err.textContent = "Add at least one step."; return; }
     const id = "m-" + uid();
     const own = mineOf(template);
@@ -728,7 +748,8 @@ async function mount(el, ctx) {
       const done = async () => {
         if (saved) return; saved = true;
         const t = inp.value ? new Date(inp.value).getTime() : s.date;
-        if (t !== s.date) await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, date: Math.min(t, m.due) } : x) }));
+        // a date you pick yourself stays put, even on a break
+        if (t !== s.date) await update(id, m => ({ ...m, steps: m.steps.map(x => { if (x.id !== sid) return x; const { offBreak, ...rest } = x; return { ...rest, date: Math.min(t, m.due), pinned: true }; }) }));
         renderDetail(id);
       };
       inp.addEventListener("change", done); inp.addEventListener("blur", done);
