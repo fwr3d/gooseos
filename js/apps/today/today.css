@@ -51,3 +51,10 @@
 .td-att .ic{width:13px;height:13px;flex:none}
 .td-att:hover{border-color:var(--accent)}
 @media (max-width:480px){.td-att span{display:none}}
+
+/* class prep under the next class */
+.td-prep{border-top:1px solid var(--line);background:var(--surface-2)}
+.td-prep-k{display:block;padding:8px 12px 0;font-size:12px;font-weight:600;color:var(--muted)}
+.td-prep .ap-row{min-height:46px;padding:8px 12px}
+.td-prep .ap-row + .ap-row,.td-prep-k + .ap-row{border-top:0}
+.td-prep .ap-row .t{font-size:14px}

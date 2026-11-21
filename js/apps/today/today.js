@@ -62,7 +62,16 @@ async function gather(now = Date.now()) {
   const missedList = ((missed && missed.list) || []).filter(m => now - m.at < 2 * 864e5);
   // classes belong to School: hide them when another list is picked
   const showClasses = pick === "all" || pick === "school";
-  return { now, evening, late, oldLate, anytime, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset, lists, pick, showClasses };
+  // class prep: what's due for the next class at or before it starts (deadlines and plan steps)
+  const nextCls = evening ? tomorrowClasses[0] || null : cls.next || (!cls.now && cls.nextDay) || null;
+  const prep = nextCls ? prepFor(all, nextCls, now) : [];
+  return { now, evening, late, oldLate, anytime, today, tomorrow, soon, focusList, workMin, cls, tomorrowClasses, sums, missedList, t0, reset, lists, pick, showClasses, nextCls, prep };
+}
+
+const sameCourse = (a, b) => !!a && !!b && a.replace(/\s+/g, "").toLowerCase() === b.replace(/\s+/g, "").toLowerCase();
+/** Open deadlines and milestone steps for x's course, due at or before x starts (skipping long-forgotten late ones). */
+function prepFor(items, x, now) {
+  return items.filter(i => (i.app === "deadlines" || i.app === "milestones") && i.due && i.due <= x.start && now - i.due <= OLD_LATE && sameCourse(i.course, x.course.code));
 }
 
 function pill(i, now) {
@@ -90,18 +99,19 @@ function classBlock(g) {
   const { cls, now, evening } = g;
   if (!cls.courses.length) return `<button class="ap-card ap-row" data-go="#schedule"><span class="tile-ic" style="${tile("blue")}">${svg("calendar")}</span><span class="grow"><span class="t">Add your classes</span><span class="s">Then Today shows what's on now and next.</span></span>${svg("chevronRight")}</button>`;
   const rows = [];
+  const prep = x => x && x === g.nextCls && g.prep.length ? `<div class="td-prep"><span class="td-prep-k">Before ${esc(x.course.code)}</span>${g.prep.map(i => itemRow(i, now)).join("")}</div>` : "";
   const row = (label, x, sub) => `<button class="ap-row" data-go="#schedule"><span class="sc-dot" style="background:${colorOf(x.course)}"></span><span class="grow"><span class="t">${esc(x.course.code)} <span class="td-kind">${esc(label)}</span></span><span class="s">${esc(sub)}</span></span></button>`;
   if (evening) {
     if (g.tomorrowClasses.length) {
       const f = g.tomorrowClasses[0];
-      rows.push(row("first class tomorrow", f, `${fmtTime(f.meeting.start)}${f.meeting.room ? " · " + f.meeting.room : ""} · ${g.tomorrowClasses.length} class${g.tomorrowClasses.length === 1 ? "" : "es"} tomorrow`));
+      rows.push(row("first class tomorrow", f, `${fmtTime(f.meeting.start)}${f.meeting.room ? " · " + f.meeting.room : ""} · ${g.tomorrowClasses.length} class${g.tomorrowClasses.length === 1 ? "" : "es"} tomorrow`), prep(f));
     } else rows.push(`<div class="ap-row"><span class="grow"><span class="t">No classes tomorrow</span></span></div>`);
   } else {
     if (cls.now) rows.push(row("now", cls.now, `ends in ${inTime(cls.now.end - now)}${cls.now.meeting.room ? " · " + cls.now.meeting.room : ""}`));
-    if (cls.next) rows.push(row("next", cls.next, `${fmtTime(cls.next.meeting.start)} · in ${inTime(cls.next.start - now)}${cls.next.meeting.room ? " · " + cls.next.meeting.room : ""}`));
+    if (cls.next) rows.push(row("next", cls.next, `${fmtTime(cls.next.meeting.start)} · in ${inTime(cls.next.start - now)}${cls.next.meeting.room ? " · " + cls.next.meeting.room : ""}`), prep(cls.next));
     const left = cls.today.filter(x => x.start > now).length - (cls.next ? 1 : 0);
     if (left > 0) rows.push(`<div class="ap-row"><span class="grow"><span class="s">+ ${left} more class${left === 1 ? "" : "es"} later today</span></span></div>`);
-    if (!cls.now && !cls.next) rows.push(`<div class="ap-row"><span class="grow"><span class="t">${cls.off.off ? esc(cls.off.label) : cls.today.length ? "Done with classes for today" : "No classes today"}</span>${cls.nextDay ? `<span class="s">Next: ${esc(cls.nextDay.course.code)} ${cls.nextDay.inDays === 1 ? "tomorrow" : new Date(cls.nextDay.start).toLocaleDateString(undefined, { weekday: "long" })} at ${fmtTime(cls.nextDay.meeting.start)}</span>` : ""}</span></div>`);
+    if (!cls.now && !cls.next) rows.push(`<div class="ap-row"><span class="grow"><span class="t">${cls.off.off ? esc(cls.off.label) : cls.today.length ? "Done with classes for today" : "No classes today"}</span>${cls.nextDay ? `<span class="s">Next: ${esc(cls.nextDay.course.code)} ${cls.nextDay.inDays === 1 ? "tomorrow" : new Date(cls.nextDay.start).toLocaleDateString(undefined, { weekday: "long" })} at ${fmtTime(cls.nextDay.meeting.start)}</span>` : ""}</span></div>`, prep(cls.nextDay));
   }
   return `<div class="ap-card">${rows.join("")}</div>`;
 }
