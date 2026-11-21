@@ -4,7 +4,8 @@
 // The PDF itself is a file from js/files.js (Transfer, a milestone, or added here
 // with scope "pdf"). Your marks are saved separately, so the original never changes
 // and you can come back and keep going:
-//   app "pdf", id <file id>: { pages: { "<n>": { strokes: [...], texts: [...] } }, updated }
+//   app "pdf", id <file id>: { pages: { "<n>": { strokes: [...], texts: [...] } }, updated, doc?, ref? }
+//     doc, ref: the notes panel's doc and whether it's open (js/notes-panel.js)
 //     stroke: { t: "pen" | "hl", c: color, w: width (pt), p: [x, y, x, y, ...] (pt from the top left) }
 //     text:   { id, x, y (pt, top left), s: size (pt), c: color, v: text }
 // "Save as PDF" draws each page and your marks into an image and builds a new PDF (makepdf.js).
@@ -12,6 +13,7 @@ import * as store from "../../store.js";
 import * as files from "../../files.js";
 import { svg } from "../../icons.js";
 import { makePdf } from "./makepdf.js";
+import { notesPanel, notesButton } from "../../notes-panel.js";
 
 const APP = "pdf";
 const COLORS = ["#111827", "#2f5bea", "#e5484d", "#22a45d"];
@@ -31,7 +33,7 @@ function pdfjs() {
 /* ---------- state for the open document ---------- */
 let ctx0, root, $ = s => root.querySelector(s);
 let task = null, doc = null, fileId = null, meta = null, marks = null, pages = [];   // pages: [{ n, vp (scale 1), wrap, pdfC, inkC, texts, rendered }]
-let zoom = 1, tool = "pen", color = COLORS[0], undo = [], saveT = null, observer = null, loadToken = 0;
+let zoom = 1, tool = "pen", color = COLORS[0], undo = [], saveT = null, observer = null, loadToken = 0, notes = null;
 const isTouch = matchMedia("(pointer: coarse)").matches;
 
 const pageData = n => (marks.pages[n] ||= { strokes: [], texts: [] });
@@ -44,7 +46,7 @@ function savable() {
   for (const [n, d] of Object.entries(marks.pages)) out[n] = { strokes: d.strokes, texts: d.texts.filter(t => t.v.trim() || t.id === typing) };
   return out;
 }
-function saveNow() { if (fileId && marks) store.put(APP, fileId, { pages: savable(), updated: Date.now() }); }
+function saveNow() { if (fileId && marks) return store.put(APP, fileId, { pages: savable(), updated: Date.now(), ...(marks.doc ? { doc: marks.doc } : {}), ...(marks.ref ? { ref: true } : {}) }); }
 function persist() { clearTimeout(saveT); saveT = setTimeout(saveNow, 700); }
 
 /* ---------- list of PDFs ---------- */
@@ -52,6 +54,7 @@ async function renderList() {
   cleanup();
   $("#pf-title").textContent = "PDF editor";
   $("#pf-tools").hidden = true; $("#pf-back").hidden = true; root.querySelector("[data-home]").hidden = false;
+  notes.paint();
   const all = (await files.list()).filter(files.isPdf);
   const marked = new Set((await store.list(APP)).filter(r => r.data && r.data.pages && Object.values(r.data.pages).some(p => p.strokes.length || p.texts.length)).map(r => r.id));
   const where = f => f.scope === "transfer" ? "Transfer" : f.scope === "milestone" ? "Milestones" : "Added here";
@@ -89,7 +92,8 @@ async function openDoc(id) {
   catch (e) { $("#pf-main").innerHTML = `<div class="ap-body"><div class="ap-card"><div class="ap-empty"><b>Couldn't read this PDF</b>It might be damaged or password protected.</div></div></div>`; return; }
   if (token !== loadToken) return;
   const saved = await store.get(APP, id);
-  marks = { pages: (saved && saved.pages) || {} };
+  marks = { pages: (saved && saved.pages) || {}, doc: saved && saved.doc, ref: !!(saved && saved.ref) };
+  notes.paint();
   undo = []; updateUndo();
   $("#pf-tools").hidden = false;
   $("#pf-main").innerHTML = `<div class="pf-pages" id="pf-pages"></div>`;
@@ -360,9 +364,13 @@ async function mount(el, ctx) {
       <span class="pf-zoom"><button class="icon-btn" id="pf-zout" aria-label="Zoom out">${svg("zoomOut")}</button><span id="pf-zlvl">100%</span><button class="icon-btn" id="pf-zin" aria-label="Zoom in">${svg("zoomIn")}</button></span>
       <span class="pf-hint" id="pf-hint"></span>
       <span class="ap-spacer"></span>
+      ${notesButton("pf-notes")}
       <button class="pill-btn" id="pf-export">${svg("download")} Save as PDF</button>
     </div>
-    <div class="ap-scroll pf-main" id="pf-main"></div>`;
+    <div class="pf-split"><div class="ap-scroll pf-main" id="pf-main"></div><aside id="pf-np"></aside></div>`;
+  notes = notesPanel({ host: el, panel: $("#pf-np"), button: el.querySelector(".pf-notes"), key: "pf-np-h",
+    get: () => marks, set: async patch => { if (!marks) return; Object.assign(marks, patch); clearTimeout(saveT); saveT = null; await saveNow(); } });
+  el.querySelector(".pf-notes").onclick = () => notes.toggle();
   $("#pf-back").onclick = () => go("");
   el.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => setTool(b.dataset.tool));
   el.querySelectorAll("[data-color]").forEach(b => b.onclick = () => {
@@ -396,6 +404,9 @@ async function mount(el, ctx) {
   });
   let rz = null;
   addEventListener("resize", () => { if (!doc || !ctx0.isActive()) return; clearTimeout(rz); rz = setTimeout(fitWidth, 200); });
+  // opening or closing the notes panel changes the page width: fit the pages to it
+  let lastW = 0;
+  new ResizeObserver(() => { const w = $("#pf-main").clientWidth; if (!doc || !ctx0.isActive() || Math.abs(w - lastW) < 2) return; lastW = w; clearTimeout(rz); rz = setTimeout(fitWidth, 120); }).observe($("#pf-main"));
   store.onChange(ch => {
     // marks changed on another device while this one is open: show them (unless you're mid-stroke)
     if (ch.app === APP && ch.source === "remote" && fileId && (ch.ids || []).includes(fileId) && !live) {

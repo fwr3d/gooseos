@@ -3,11 +3,13 @@
 //   { name, bg, strokes, created, course? }
 //   course: the class code (from Schedule) this board belongs to. While that class is
 //   on, opening Whiteboard goes straight to its board (made the first time).
+//   doc, ref: the notes panel's doc and whether it's open (js/notes-panel.js).
 // Each stroke is { t, c, w, p: [x, y, ...], s?, e?, d? } in board coordinates.
 //   e: arrowheads on a line or arrow (0 none, 1 end, 2 start, 3 both); d: 1 dashed, 2 dotted.
 // Pan/zoom position is kept per device only (localStorage), so it doesn't sync.
 import { svg } from "../../icons.js";
 import { loadCourses, isInClass } from "../schedule/schedule.js";
+import { notesPanel } from "../../notes-panel.js";
 
 const APP = "whiteboard";
 
@@ -42,6 +44,7 @@ let saveT = null;
 let sel = null, editing = null, symBar = null;   // the selected stroke, and the text being retyped
 const ends = { line: 0, arrow: 1 };
 let dash = 0;
+let notes = null;  // the notes panel
 
 /* ---------- boards ---------- */
 function newBoard(name) {
@@ -56,7 +59,7 @@ async function loadBoards() {
   board = boards.find(b => b.id === (board && board.id)) || boards.find(b => b.id === lastId) || boards[0];
   loadView();
 }
-const dataOf = b => ({ name: b.name, bg: b.bg, strokes: b.strokes, created: b.created, ...(b.course ? { course: b.course } : {}) });
+const dataOf = b => ({ name: b.name, bg: b.bg, strokes: b.strokes, created: b.created, ...(b.course ? { course: b.course } : {}), ...(b.doc ? { doc: b.doc } : {}), ...(b.ref ? { ref: true } : {}) });
 function save(now) {
   setStatus("saving");
   clearTimeout(saveT);
@@ -83,6 +86,7 @@ function renderBar() {
   $("#wb-board-name").textContent = board.name;
   const tag = $("#wb-cls"); tag.hidden = !board.course || board.course === board.name; tag.textContent = board.course || "";
   updateUndo(); updateZoom();
+  if (notes) notes.paint();
 }
 function switchTo(b) { commitText(); sel = null; board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
 
@@ -565,10 +569,12 @@ const MARKUP = () => `
     <button class="wb-board" id="wb-board" aria-haspopup="menu"><span id="wb-board-name"></span><small class="wb-cls" id="wb-cls" hidden></small>${svg("chevronDown")}</button>
     <span class="wb-spacer"></span>
     <span class="wb-status" id="wb-status" aria-live="polite"></span>
+    <button class="icon-btn wb-notes" id="wb-notes" aria-label="Notes" title="Notes: study guides and questions from your milestones" aria-pressed="false">${svg("notebook")}</button>
     <button class="icon-btn" id="wb-undo" aria-label="Undo" title="Undo (Ctrl+Z)">${svg("undo2")}</button>
     <button class="icon-btn" id="wb-redo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">${svg("redo2")}</button>
     <button class="icon-btn" id="wb-more" aria-label="More" aria-haspopup="menu">${svg("ellipsis")}</button>
   </div>
+  <div class="wb-split">
   <div class="wb-stage draw" id="wb-stage">
     <canvas></canvas>
     <div class="wb-hint" id="wb-hint">Draw anything<small>Pinch or Ctrl + scroll to zoom · Space + drag to move</small></div>
@@ -580,6 +586,8 @@ const MARKUP = () => `
       <div class="wb-tools surface" id="wb-tools">${TOOLS.map(([id, label, ic]) => id === "sep" ? `<span class="wb-sep"></span>` :
         `<button class="wb-tool" data-tool="${id}" aria-label="${label}" title="${label}" aria-pressed="${id === tool}">${svg(ic)}</button>`).join("")}</div>
     </div>
+  </div>
+  <aside id="wb-np"></aside>
   </div>`;
 
 /* ---------- app interface ---------- */
@@ -628,6 +636,9 @@ async function mount(el, ctx) {
     drawStyles();
   });
   $("#wb-undo").onclick = undo; $("#wb-redo").onclick = redo;
+  notes = notesPanel({ host: root, panel: $("#wb-np"), button: $("#wb-notes"), key: "wb-np-h",
+    get: () => board, set: async patch => { Object.assign(board, patch); if (!board.ref) delete board.ref; await ctx0.store.put(APP, board.id, dataOf(board)); } });
+  $("#wb-notes").onclick = () => notes.toggle();
   $("#wb-zin").onclick = () => zoomAt(W / 2, H / 2, 1.25);
   $("#wb-zout").onclick = () => zoomAt(W / 2, H / 2, 0.8);
   $("#wb-board").onclick = e => { e.stopPropagation(); menuEl ? closeMenu() : boardMenu(e.currentTarget); };

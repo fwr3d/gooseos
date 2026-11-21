@@ -37,3 +37,8 @@
 .pf-sheet .pill-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 16px}
 .pf-sheet .pill-btn .ic{width:17px;height:17px}
 @media (max-width:640px){.pf-hint{display:none}.pf-tools{gap:6px 8px;padding:6px 10px}}
+/* notes panel beside the pages (a sheet at the bottom on a phone) */
+.pf-split{flex:1;min-height:0;display:flex}
+.pf-split>.pf-main{min-width:0}
+.pf-split>.np{margin:12px 12px 12px 0}
+@media (max-width:899px){.pf.np-open .pf-main{padding-bottom:var(--np-h,45dvh)}.pf-split>.np{margin:0}}
