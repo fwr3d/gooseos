@@ -32,3 +32,16 @@ a.ap-row.rs-link:hover{background:var(--accent-soft)}
 .rs-head h1{margin:0;font-family:var(--f-clock);font-weight:var(--w-strong);font-size:clamp(24px,5vw,32px);letter-spacing:-.02em;line-height:1.05}
 .rs-quote{font-size:15px;line-height:1.45;border-left:3px solid var(--accent-strong)}
 .rs-intro .rs-hint{margin:0}
+
+/* a time for each must-do */
+.rs-pin+.rs-pin{border-top:1px solid var(--line)}
+.rs-pin .ap-row{border:0}
+.rs-slot{display:flex;align-items:center;gap:10px;margin:0 12px 12px 52px;padding:8px 10px;border-radius:12px;background:var(--accent-soft);font-size:13.5px;min-width:0}
+.rs-slot>.ic,.rs-slot>svg{width:16px;height:16px;flex:none;color:var(--accent)}
+.rs-slot .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.rs-slot small{font-size:12px;color:var(--muted)}
+.rs-slot .pill-btn{flex:none;padding:6px 12px;font-size:13px}
+.rs-slot .icon-btn{flex:none;width:30px;height:30px}
+.rs-slot.on{background:color-mix(in srgb,var(--good) 14%,transparent)}
+.rs-slot.on>svg,.rs-slot.on>.ic{color:var(--good)}
+@media (max-width:520px){ .rs-slot{margin-left:12px;flex-wrap:wrap} .rs-slot .grow{flex-basis:calc(100% - 30px)} .rs-slot.on{flex-wrap:nowrap} .rs-slot.on .grow{flex-basis:auto} }
