@@ -137,7 +137,7 @@ $("#sheet-close").onclick = closeSheet;
 $("#sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeSheet(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheet").hidden) closeSheet(); });
 
-function openSettings() { drawSettings(); openSheet(); }
+async function openSettings() { await drawSettings(); openSheet(); }
 // Hidden apps stay off the home screen; this is the one place to open them.
 function hiddenRows() {
   const hid = apps.filter(a => a.hidden);
@@ -162,10 +162,9 @@ function setTheme(k) {
   try { localStorage.setItem("theme", k); } catch (e) { /* still applied for this visit */ }
 }
 
-function drawSettings() {
-  $("#sheet-title").textContent = "Settings";
+function syncRowHtml() {
   const s = syncState, signedIn = s.email && s.status !== "signed-out";
-  const syncRow = s.status === "off"
+  return s.status === "off"
     ? `<div class="row"><span class="tile-ic" style="${tile("gray")}">${svg("cloudOff")}</span><div class="grow"><div class="t">Sync is off</div><div class="s">Everything is saved on this device.</div></div></div>`
     : signedIn
       ? `<div class="row"><span class="tile-ic" style="${tile("green")}">${svg("cloud")}</span><div class="grow"><div class="t">${esc(SYNC_TEXT[s.status])}</div><div class="s">${esc(s.email)}</div></div></div>
@@ -173,31 +172,50 @@ function drawSettings() {
          <button class="row row-btn" id="st-sync"><span class="tile-ic" style="${tile("blue")}">${svg("refreshCw")}</span><div class="grow t">Sync now</div></button>
          <button class="row row-btn danger" id="st-out"><span class="tile-ic" style="${tile("red")}">${svg("logOut")}</span><div class="grow t">Sign out</div></button>`
       : `<button class="row row-btn" id="st-in"><span class="tile-ic" style="${tile("blue")}">${svg("cloud")}</span><div class="grow"><div class="t">Sign in to sync</div><div class="s">Keep your PC and iPhone in step.</div></div></button>`;
-  const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="${tile("warm")}">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
-  $("#sheet-body").innerHTML = `
-    <div class="group-h">Sync</div><div class="group">${syncRow}</div>
-    <div class="group-h">Theme</div><div class="group"><div class="theme-pick" id="st-theme">${THEMES.map(([k, name, sw]) => `<button type="button" data-theme-pick="${k}" aria-pressed="${k === currentTheme()}"><span class="sw">${sw.map(c => `<i style="background:${c}"></i>`).join("")}</span>${name}</button>`).join("")}</div></div>
-    <div id="st-home"></div>
-    ${installRow}
-    ${hiddenRows()}
-    <div class="group-h">About</div>
-    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide.</div></div></div></div>`;
+}
+function wireSync() {
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on("#st-in", () => drawSignIn());
   on("#st-sync", () => { sync.syncNow(); toast("Syncing…"); });
   on("#st-out", async () => { await sync.signOut(); toast("Signed out. Your stuff is still on this device."); drawSettings(); });
-  on("#st-install", () => $("#install-btn").click());
+}
+// Sync status changes often; only the sync rows are redrawn so the rest of Settings (pickers, scroll) stays put.
+function refreshSyncRows() {
+  const g = $("#st-sync-group"); if (!g) return;
+  const html = syncRowHtml();
+  if (g.innerHTML !== html) { g.innerHTML = html; wireSync(); }
+}
+
+let settingsRun = 0;
+async function drawSettings() {
+  const run = ++settingsRun;
+  // load the widget picker first so the sheet appears complete, with no section popping in later
+  const picker = await pickerHtml();
+  if (run !== settingsRun) return;
+  $("#sheet-title").textContent = "Settings";
+  const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="${tile("warm")}">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
+  $("#sheet-body").innerHTML = `
+    <div class="group-h">Sync</div><div class="group" id="st-sync-group">${syncRowHtml()}</div>
+    <div class="group-h">Theme</div><div class="group"><div class="theme-pick" id="st-theme">${THEMES.map(([k, name, sw]) => `<button type="button" data-theme-pick="${k}" aria-pressed="${k === currentTheme()}"><span class="sw">${sw.map(c => `<i style="background:${c}"></i>`).join("")}</span>${name}</button>`).join("")}</div></div>
+    <div id="st-home">${picker}</div>
+    ${installRow}
+    ${hiddenRows()}
+    <div class="group-h">About</div>
+    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide.</div></div></div></div>`;
+  wireSync();
+  const inst = $("#st-install"); if (inst) inst.onclick = () => $("#install-btn").click();
   $("#st-theme").onclick = e => {
     const b = e.target.closest("[data-theme-pick]"); if (!b) return;
     setTheme(b.dataset.themePick);
     $("#st-theme").querySelectorAll("[data-theme-pick]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
   };
   // pick which widgets the home screen shows
-  pickerHtml().then(html => { const box = $("#st-home"); if (!box) return; box.innerHTML = html; wirePicker(box, () => { toast("Home screen updated"); renderHome(); }); });
+  wirePicker($("#st-home"), () => { toast("Home screen updated"); renderHome(); });
 }
 
 let pendingEmail = "";
 function drawSignIn(step) {
+  settingsRun++; // a pending Settings redraw must not overwrite this form
   const creating = step === "create";
   $("#sheet-title").textContent = creating ? "Make your account" : "Sign in";
   $("#sheet-body").innerHTML = `<p>${creating
@@ -253,10 +271,10 @@ for (const a of apps) if (a.start) { try { a.start({ store, toast, svg }); } cat
 sync.onStatus(s => {
   syncState = s;
   if (!current) renderGooseWidget();
-  if (!$("#sheet").hidden && $("#sheet-title").textContent === "Settings") drawSettings();
+  if (!$("#sheet").hidden && $("#sheet-title").textContent === "Settings") refreshSyncRows();
 });
 sync.start();
 feed.start();
 files.start();
 let homeT = null;
-store.onChange(() => { if (!current) { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); } });
+store.onChange(ch => { if (ch.app === "shell" && ch.source === "local") return; /* the picker redraws home itself */ if (!current) { clearTimeout(homeT); homeT = setTimeout(renderHome, 300); } });

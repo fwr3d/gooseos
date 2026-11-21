@@ -152,7 +152,9 @@ function rowHtml(d) {
   </div>`;
 }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   [items, allLists] = await Promise.all([loadDeadlines(), lists.loadLists()]);
   const cfg = await getConfig();
   if (listFilter !== "all" && !allLists.some(l => l.id === listFilter)) listFilter = "all";

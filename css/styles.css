@@ -410,3 +410,13 @@ body:has(.view:not([hidden]):not([data-app="whiteboard"]):not([data-app="syllabu
 .fv-msg,.fv-wait{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:13.5px}
 .fv-msg b{color:var(--ink);font-weight:500;font-size:15px}
 .fv-msg .ic{width:36px;height:36px;color:var(--faint)}
+.fv-doc h3,.fv-doc h4{font-size:17px;font-weight:500;margin:18px 0 6px}
+.fv-doc h4{font-size:15px}
+.fv-doc > :first-child{margin-top:0}
+.fv-doc p{margin:8px 0}
+.fv-doc ul,.fv-doc ol{margin:8px 0;padding-left:22px}
+.fv-doc li{margin:3px 0}
+.fv-doc b{font-weight:500}
+.fv-doc code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;background:var(--surface-2);border-radius:4px;padding:1px 5px}
+.fv-doc pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow:auto;margin:10px 0}
+.fv-doc pre code{background:none;padding:0}

@@ -208,7 +208,9 @@ function weekHtml(courses, sem) {
   </div></div>`;
 }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   const t = Date.now();
   const st = await status(t);
   const { courses, sem } = st;

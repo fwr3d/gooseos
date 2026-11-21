@@ -243,7 +243,9 @@ function itemRow(item, extra, now) {
   </div>`;
 }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   const now = Date.now();
   const [settings, items, missed] = await Promise.all([getSettings(), agenda.list(), store.get(APP, "missed")]);
   const dated = items.filter(i => i.due && i.kind !== "ping");

@@ -15,7 +15,7 @@ import * as files from "../../files.js";
 import * as sync from "../../sync.js";
 import { openViewer, viewFile } from "../../viewer.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
-import { listDocs, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
+import { listDocs, saveDoc, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
 
 const tplLabel = m => m.templateName || TEMPLATES[m.template]?.label || "Custom";
 
@@ -255,7 +255,8 @@ function drawWorkspace() {
   };
   const fileRow = f => `<div class="ws-row ms-frow" data-fid="${esc(f.id)}">
       <span class="ws-ic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
-      <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), files.statusText(f)].filter(Boolean).join(" · "))}</span></button>
+      <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([KINDS[f.kind], files.sizeText(f.size), files.statusText(f)].filter(Boolean).join(" · "))}</span></button>
+      ${f.kind === "guide" ? `<span class="ms-tag blue">guide</span>` : ""}
       <span class="ms-tools ws-ftools">
         <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
           <option value="">Whole ${whole}</option>
@@ -442,6 +443,15 @@ async function openSheet({ edit, prefill = {} } = {}) {
 
 /* ---------- adding files: the File button, drag and drop (files or folders), and paste ---------- */
 let adding = false;
+/** "guide" or "questions" when the file name says so. */
+function kindFromName(name) {
+  const n = String(name).replace(/\.[^.]+$/, "");
+  if (/study[\s_.-]*guide/i.test(n)) return "guide";
+  if (/practice[\s_.-]*(questions?|problems?|qs|test|exam|quiz)/i.test(n)) return "questions";
+  return "";
+}
+const isTextDoc = f => /\.(md|markdown|txt)$/i.test(f.name) || /^text\/(markdown|plain)$/.test(f.type || "");
+const titleFrom = name => String(name).replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
 /** Attach files to the open milestone: to step `sid`, or to the whole plan (a rubric then goes to the submit step). */
 async function addFiles(list, sid) {
   const id = current; if (!id || !list.length || !ws) return;
@@ -453,7 +463,12 @@ async function addFiles(list, sid) {
     for (const [i, file] of list.entries()) {
       if (list.length > 1) ctx0.toast(`Adding ${i + 1} of ${list.length}…`);
       const to = step || (/rubric/i.test(file.name) ? submitStep(m) : null);
-      try { await files.add(file, { scope: "milestone", owner: ownerOf(id, to && to.id) }); ok++; }
+      const owner = ownerOf(id, to && to.id), kind = kindFromName(file.name);
+      try {
+        if (kind && isTextDoc(file)) await saveDoc({ owner, kind, title: titleFrom(file.name), body: await file.text() });
+        else { const rec = await files.add(file, { scope: "milestone", owner }); if (kind) await files.update(rec.id, { kind }); }
+        ok++;
+      }
       catch (err) { failed.push(`${file.name}: ${files.errorText(err)}`); }
     }
   } finally { adding = false; }
@@ -726,7 +741,7 @@ async function mount(el, ctx) {
     if (!current || !ws) return;
     for (const row of root.querySelectorAll(".ms-frow[data-fid]")) {
       const f = await files.get(row.dataset.fid); const line = row.querySelector(".ms-fopen .s");
-      if (f && line) line.textContent = [files.sizeText(f.size), files.statusText(f)].filter(Boolean).join(" · ");
+      if (f && line) line.textContent = [KINDS[f.kind], files.sizeText(f.size), files.statusText(f)].filter(Boolean).join(" · ");
     }
   };
   store.onChange(ch => { if (ch.app === "files" && current) refreshFileLines(); });

@@ -184,7 +184,9 @@ async function viewDone(g) {
     <p class="rs-hint">${g.week.length} thing${g.week.length === 1 ? "" : "s"} due between now and Sunday. Next reset: Sunday at ${PING_HOUR - 12} PM.</p>`;
 }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   const g = await gather();
   if (mode === "done" && !g.plan) mode = "intro";
   let html;

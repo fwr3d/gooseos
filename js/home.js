@@ -107,36 +107,36 @@ export async function renderHome(ctx) {
   if (stale()) return;
   const all = [...apps.filter(a => !a.hidden), ctx.settingsApp];
 
-  // apps grid: everything, in list order, Settings last
-  $("#apps").innerHTML = (await Promise.all(all.map(a => iconHtml(a)))).join("");
-
-  // dock: favorites plus quick add
-  $("#dock").innerHTML = (await Promise.all(DOCK.map(id => id === "+"
+  // build everything off-screen, then swap it in at once so nothing blanks or jumps while widgets load
+  const appsHtml = (await Promise.all(all.map(a => iconHtml(a)))).join("");
+  const dockHtml = (await Promise.all(DOCK.map(id => id === "+"
     ? `<button class="app-ic dock-add" data-quick aria-label="Quick add a deadline"><span class="sq">${svg("plus")}</span></button>`
     : (app(id) ? iconHtml(app(id), { label: false }) : "")))).join("");
-
   if (stale()) return;
 
-  // small widgets
-  const small = $("#small-widgets");
-  small.innerHTML = "";
+  const smalls = [];
   for (const key of prefs.small) {
-    if (stale()) return;
     const w = SMALL[key]; if (!w) continue;
     const el = document.createElement("button");
     el.className = "widget h-small"; if (w.open) el.dataset.open = w.open; el.setAttribute("aria-label", w.label);
-    small.appendChild(el);
     try { await w.render(el, ctx); } catch (e) { console.error(e); }
+    if (stale()) return;
+    smalls.push(el);
   }
 
+  const w = WIDE[prefs.wide];
+  const wideEl = document.createElement("button");
+  if (prefs.wide !== "none") { try { await w.render(wideEl, ctx); } catch (e) { console.error(e); } }
   if (stale()) return;
-  // wide widget
-  const wide = $("#wide-widget"), w = WIDE[prefs.wide];
+
+  $("#apps").innerHTML = appsHtml;
+  $("#dock").innerHTML = dockHtml;
+  $("#small-widgets").replaceChildren(...smalls);
+  const wide = $("#wide-widget");
   wide.hidden = prefs.wide === "none";
-  if (!wide.hidden) {
-    wide.className = "widget h-wide wide"; wide.dataset.open = w.open; wide.setAttribute("aria-label", w.label);
-    try { await w.render(wide, ctx); } catch (e) { console.error(e); }
-  }
+  wide.className = "widget h-wide wide";
+  wide.dataset.open = w.open; wide.setAttribute("aria-label", w.label);
+  wide.replaceChildren(...wideEl.childNodes);
 }
 
 /** Settings rows for picking widgets. Calls onChange after saving. */
@@ -149,10 +149,13 @@ export async function pickerHtml() {
     <label class="row"><div class="grow t">Wide widget</div><select class="field h-pick" data-slot="wide">${opts(WIDE, p.wide)}</select></label>
   </div>`;
 }
-export function wirePicker(root, onChange) {
-  root.querySelectorAll(".h-pick").forEach(sel => sel.onchange = async () => {
-    const p = await loadPrefs();
+export async function wirePicker(root, onChange) {
+  // keep the picks in memory and save one at a time, so quick back-to-back changes can't overwrite each other
+  const p = await loadPrefs();
+  let chain = Promise.resolve();
+  root.querySelectorAll(".h-pick").forEach(sel => sel.onchange = () => {
     if (sel.dataset.slot === "wide") p.wide = sel.value; else p.small[+sel.dataset.slot] = sel.value;
-    await savePrefs(p); onChange && onChange();
+    const snap = { small: [...p.small], wide: p.wide };
+    chain = chain.then(() => savePrefs(snap)).then(() => onChange && onChange()).catch(e => console.error(e));
   });
 }

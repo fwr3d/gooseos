@@ -133,7 +133,9 @@ function undoToast(msg, undo) {
   ctx0.toast(msg, { label: "Undo", run: async () => { const t = document.querySelector(".toast"); if (t) t.hidden = true; await undo(); render(); } });
 }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   const data = await loadAll();
   const course = openId && data.courses.find(c => c.id === openId);
   if (openId && !course) openId = null;

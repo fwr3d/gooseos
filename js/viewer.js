@@ -3,6 +3,7 @@
 //   viewFile(id): images, text and code, audio and video show inside; anything else offers Download.
 import { svg } from "./icons.js";
 import * as files from "./files.js";
+import { renderMd } from "./apps/milestones/workspace.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const TEXT = /\.(txt|md|csv|json|js|mjs|ts|py|java|c|cpp|h|cs|go|rs|rb|php|html|css|xml|yml|yaml|sql|sh|tex|log)$/i;
@@ -57,7 +58,9 @@ export async function viewFile(id, { toast } = {}) {
       if (files.isImage(f)) body.innerHTML = `<div class="fv-media"><img src="${url}" alt="${esc(f.name)}"></div>`;
       else if (/^video\//.test(type)) body.innerHTML = `<div class="fv-media"><video src="${url}" controls></video></div>`;
       else if (/^audio\//.test(type)) body.innerHTML = `<div class="fv-media"><audio src="${url}" controls></audio></div>`;
-      else if (/^text\/|json|xml|javascript/.test(type) || TEXT.test(f.name)) {
+      else if (/markdown/.test(type) || /\.(md|markdown)$/i.test(f.name)) {
+        body.innerHTML = `<article class="fv-doc ws-md">${renderMd(await b.text()) || "<p>This file is empty.</p>"}</article>`;
+      } else if (/^text\/|json|xml|javascript/.test(type) || TEXT.test(f.name)) {
         const text = await b.text();
         body.innerHTML = `<pre class="fv-text"></pre>`; body.querySelector("pre").textContent = text;
       } else body.innerHTML = `<div class="fv-msg">${svg("file")}<b>${esc(f.name)}</b><span>This kind of file can't be shown here. Download it or open it in a new tab.</span></div>`;

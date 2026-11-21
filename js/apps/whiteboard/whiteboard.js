@@ -491,12 +491,15 @@ async function widget(el, ctx) {
     ${ago ? `<div class="w-sub">Edited ${ago}</div>` : ""}`;
   const c = el.querySelector("canvas");
   if (!c) return;
-  requestAnimationFrame(() => {
+  // the widget may be built off-screen first, so wait (a few frames) until it is on the page and has a size
+  let tries = 0;
+  const paint = () => {
     const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
-    if (!r.width) return;
+    if (!c.isConnected || !r.width) { if (++tries < 30) requestAnimationFrame(paint); return; }
     c.width = Math.round(r.width * d); c.height = Math.round(r.height * d);
     renderTo(c.getContext("2d"), latest.data.strokes, "blank", c.width, c.height, 10 * d);
-  });
+  };
+  requestAnimationFrame(paint);
 }
 function timeAgo(t) {
   const s = Math.max(0, (Date.now() - t) / 1000);

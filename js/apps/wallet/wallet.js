@@ -173,7 +173,9 @@ function undoToast(msg, undo) {
 }
 function hideToast() { const t = document.querySelector(".toast"); if (t) t.hidden = true; }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   root.querySelectorAll(".ap-tabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tab === tab)));
   const st = await status();
   if (!st) return renderSetup();

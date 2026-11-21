@@ -54,7 +54,9 @@ function rowHtml(f) {
   </div>`;
 }
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   const all = await files.list({ scope: "transfer" });
   const s = seen();
   // new = not seen on this device before this visit; stays tagged until you leave Transfer

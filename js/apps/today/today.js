@@ -120,7 +120,9 @@ function sumCard(s) {
 let ctx0, root, timer = null, showOld = false, showAllAnytime = false;
 const $ = s => root.querySelector(s);
 
-async function render() {
+import { latest } from "../../latest.js";
+const render = latest(renderNow);
+async function renderNow() {
   const g = await gather();
   const { now, evening } = g;
   const dateText = new Date(evening ? addDays(now, 1) : now).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
