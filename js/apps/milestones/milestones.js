@@ -198,6 +198,7 @@ async function renderDetail(id) {
       <div class="ms-meter"><div class="ms-bar"><i style="width:${p.pct}%"></i></div><span>${p.d} of ${p.n} steps</span></div>
     </div>
     ${m.deadlineDone && p.d < p.n ? `<div class="ms-banner"><span class="grow"><b>You checked off the deadline</b><span>The steps left won't remind you anymore.</span></span><button class="ms-ob sm" data-act="finish">Mark all done</button></div>` : ""}
+    ${m.template === "exam" ? `<div id="ms-need" hidden></div>` : ""}
     <div class="ms-cols"><div class="ms-left">
       <div class="ms-lab">Steps</div>
       <div class="ms-list ${addOpen ? "adding" : ""}" id="ms-steps">
@@ -212,6 +213,26 @@ async function renderDetail(id) {
   // keep the keyboard on the "Add a step" box (and don't scroll for it) so adding several steps in a row stays smooth
   if (addOpen) { addOpen = false; $("#ms-addstep input")?.focus({ preventScroll: true }); }
   drawWorkspace();
+  if (m.template === "exam") drawNeed(m);
+}
+
+/* ---------- exam: the score you need on it, from Grades ---------- */
+const needPct = x => `${Math.round(x)}%`;
+async function drawNeed(m) {
+  let r = null;
+  try { r = await (await import("../grades/grades.js")).examNeed({ course: m.course, title: m.title }); } catch (e) { r = null; }
+  const box = $("#ms-need"); if (!box || current !== m.id || !r) return;
+  const cell = L => {
+    const n = r.need[L]; if (!n) return "";
+    const v = n.kind === "need" ? needPct(n.x) : n.kind === "locked" ? "Locked in" : n.kind === "out" ? "Out of reach" : needPct(n.final);
+    const pts = n.kind === "need" && r.item ? `<span>${Math.round(n.x / 100 * r.item.outOf * 10) / 10} / ${r.item.outOf}</span>` : "";
+    return `<div class="ms-need-c ${n.kind}"><b>${L}</b><span class="v">${v}</span>${pts}</div>`;
+  };
+  box.className = "ms-need"; box.hidden = false;
+  box.innerHTML = `<div class="ms-need-h"><span class="ms-lab">${r.item ? "What you need on this exam" : "What you need on what's left"}</span>
+      <a class="ms-dl" href="#grades/${encodeURIComponent(r.courseId)}">${esc(r.code)} grades</a></div>
+    <div class="ms-need-row">${["A", "B", "C"].map(cell).join("")}</div>
+    <p class="ms-need-n">${r.item ? `On ${esc(r.item.title)}, if you keep your current average on everything else.` : "No score for this exam in Grades yet, so this is the average you need on everything still to come."}</p>`;
 }
 
 /* ---------- workspace: notes and files for the whole project or the selected step ---------- */
