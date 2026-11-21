@@ -14,3 +14,19 @@
 .tr-open .s.bad{color:var(--bad)}
 .tr-row .icon-btn[aria-pressed="true"]{color:var(--accent-strong)}
 @media (max-width:520px){.tr-row .icon-btn[data-act="save"]{display:none}}
+/* send a file where it belongs */
+.tr-main{gap:6px}
+.tr-main .tr-open{display:flex;flex-direction:column;gap:2px;min-width:0;width:100%}
+.tr-go{display:flex;flex-wrap:wrap;gap:6px}
+.tr-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:999px;padding:3px 10px;font-size:12.5px;cursor:pointer}
+.tr-chip .ic{width:14px;height:14px;color:var(--muted)}
+.tr-chip:hover{background:var(--accent-soft)}
+.tr-sheet .note{margin:0;font-size:13px;color:var(--muted)}
+.tr-ms h5{margin:4px 0 4px;font-size:13.5px;font-weight:var(--w-strong);display:flex;justify-content:space-between;gap:8px}
+.tr-ms h5 small{font-weight:500;color:var(--muted);font-size:12px}
+.tr-step{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;color:inherit;text-align:left;padding:8px;border-radius:10px;font-size:14px;cursor:pointer}
+.tr-step:hover{background:var(--accent-soft)}
+.tr-step>.ic{width:17px;height:17px;flex:none;color:var(--muted)}
+.tr-step span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-step small{color:var(--muted);font-size:12px}
+.tr-step.done span{color:var(--muted)}
