@@ -315,10 +315,18 @@ function fit() {
 }
 
 /* ---------- text ---------- */
-// math: a row of symbols over the text box, and shortcuts that turn into symbols as you type
-const SYMS = [["²", "³", "ⁿ", "√", "∛", "π", "∞", "±", "×", "÷", "·", "≈", "≠", "≤", "≥", "°"], ["→", "←", "↔", "⇒", "⇔", "∴"],
-  ["α", "β", "γ", "δ", "Δ", "θ", "λ", "μ", "σ", "Σ", "φ", "ω", "Ω"], ["∫", "∑", "∏", "∂", "∇", "lim"],
-  ["∈", "∉", "⊂", "⊆", "∪", "∩", "∅", "∀", "∃", "¬", "∧", "∨", "ℝ", "ℕ", "ℤ"]];
+// math: a short row of recent symbols next to the text box, a "more" grid sorted into tabs,
+// and shortcuts that turn into symbols as you type
+const SYM_TABS = [
+  ["Math", ["²", "³", "ⁿ", "√", "∛", "π", "∞", "±", "×", "÷", "·", "°", "≈", "≠", "≤", "≥"]],
+  ["Greek", ["α", "β", "γ", "δ", "Δ", "ε", "θ", "λ", "μ", "π", "ρ", "σ", "Σ", "φ", "ω", "Ω"]],
+  ["Arrows", ["→", "←", "↔", "↑", "↓", "⇒", "⇐", "⇔", "∴", "∵"]],
+  ["Calculus", ["∫", "∬", "∮", "∑", "∏", "∂", "∇", "Δ", "lim", "∞", "dx", "dy"]],
+  ["Sets", ["∈", "∉", "⊂", "⊆", "∪", "∩", "∅", "∀", "∃", "¬", "∧", "∨", "ℝ", "ℕ", "ℤ", "ℚ"]],
+];
+const SYM_START = ["²", "√", "π", "θ", "≤", "≥", "≠", "→"];
+const symRecent = () => { try { const r = JSON.parse(lsGet("wb-sym-recent")); if (Array.isArray(r) && r.length) return r.slice(0, 8); } catch (e) { /* fall through */ } return SYM_START; };
+const symUsed = c => lsSet("wb-sym-recent", JSON.stringify([c, ...symRecent().filter(x => x !== c)].slice(0, 8)));
 const SUP = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", n: "ⁿ", i: "ⁱ", x: "ˣ", y: "ʸ" };
 const SUB = { 0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇", 8: "₈", 9: "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎", a: "ₐ", e: "ₑ", i: "ᵢ", n: "ₙ", o: "ₒ", x: "ₓ" };
 const PAIRS = [["←>", "↔"], ["<=", "≤"], [">=", "≥"], ["!=", "≠"], ["->", "→"], ["<-", "←"], ["=>", "⇒"], ["+-", "±"], ["~=", "≈"]];
@@ -337,17 +345,33 @@ function autoSym(inp) {
 const finishSym = v => v.replace(/\\([A-Za-z]+)$/, (w, k) => WORDS[k] || w);
 function openSyms(inp, sx, sy, fontPx, grow) {
   const bar = document.createElement("div"); bar.className = "wb-sym surface";
-  bar.innerHTML = SYMS.map(g => g.map(c => `<button type="button" data-s="${c}">${c}</button>`).join("")).join(`<span class="wb-sep"></span>`)
-    + `<span class="wb-sep"></span><span class="wb-sym-tip">Or type ^2 x_1 &lt;= -&gt; \\pi</span>`;
-  stage.appendChild(bar);
-  const bw = bar.offsetWidth, bh = bar.offsetHeight;
-  bar.style.left = Math.max(8, Math.min(sx, W - bw - 8)) + "px";
-  bar.style.top = (sy - bh - 8 > 64 ? sy - bh - 8 : sy + fontPx * 1.2 + 10) + "px";
+  const btn = c => `<button type="button" data-s="${c}">${c}</button>`;
+  let tab = Math.max(0, SYM_TABS.findIndex(t => t[0] === lsGet("wb-sym-tab")));
+  const paintRow = () => { bar.querySelector(".wb-sym-row").innerHTML = symRecent().map(btn).join("") + `<button type="button" class="wb-sym-more" data-more aria-expanded="${!bar.querySelector(".wb-sym-pan").hidden}">more</button>`; };
+  const paintPan = () => {
+    bar.querySelector(".wb-sym-tabs").innerHTML = SYM_TABS.map(([n], i) => `<button type="button" data-tab="${i}" aria-pressed="${i === tab}">${n}</button>`).join("");
+    bar.querySelector(".wb-sym-grid").innerHTML = SYM_TABS[tab][1].map(btn).join("");
+  };
+  bar.innerHTML = `<div class="wb-sym-row"></div><div class="wb-sym-pan" hidden><div class="wb-sym-tabs"></div><div class="wb-sym-grid"></div>
+    <p class="wb-sym-tip">Or type them: ${[["^2", "²"], ["x_1", "x₁"], ["&lt;=", "≤"], ["-&gt;", "→"], ["\\pi", "π"]].map(([k, v]) => `<span><kbd>${k}</kbd> ${v}</span>`).join("")}</p></div>`;
+  stage.appendChild(bar); paintRow(); paintPan();
+  // sits just above the text box (or below it near the top); the grid opens away from the text
+  const place = () => {
+    const up = sy - bar.offsetHeight - 8 > 64;
+    bar.classList.toggle("up", up);
+    bar.style.left = Math.max(8, Math.min(sx, W - bar.offsetWidth - 8)) + "px";
+    bar.style.top = (up ? sy - bar.offsetHeight - 8 : sy + fontPx * 1.2 + 10) + "px";
+  };
+  place();
   const keep = e => e.preventDefault();   // keep the text box focused
   bar.addEventListener("pointerdown", keep); bar.addEventListener("mousedown", keep);
   bar.addEventListener("click", e => {
+    if (e.target.closest("[data-more]")) { const p = bar.querySelector(".wb-sym-pan"); p.hidden = !p.hidden; paintRow(); place(); return; }
+    const t = e.target.closest("[data-tab]");
+    if (t) { tab = +t.dataset.tab; lsSet("wb-sym-tab", SYM_TABS[tab][0]); paintPan(); place(); return; }
     const b = e.target.closest("[data-s]"); if (!b) return;
     inp.setRangeText(b.dataset.s, inp.selectionStart, inp.selectionEnd, "end"); grow(); inp.focus();
+    if (b.closest(".wb-sym-grid")) { symUsed(b.dataset.s); paintRow(); }   // picks from the grid join the row; the row itself stays put under your finger
   });
   symBar = bar;
 }
