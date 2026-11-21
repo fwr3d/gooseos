@@ -84,6 +84,6 @@ export const ICONS = {
 };
 
 /** Full <svg> for an icon name. */
-/** Inline style for a tinted app tile: tint is warm | red | blue | green | violet | gray. */
-export const tile = tint => `background:var(--tint-${tint || "gray"}-bg);color:var(--tint-${tint || "gray"}-fg)`;
+/** Inline style for an app tile: solid color, white icon. tint is warm | red | blue | green | violet | gray. */
+export const tile = tint => `background:var(--tint-${tint || "gray"}-solid);color:#fff`;
 export const svg = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;

@@ -149,6 +149,19 @@ document.addEventListener("click", e => {
   const b = e.target.closest("[data-hidden-open]");
   if (b) { closeSheet(); openedFromHome = true; location.hash = b.dataset.hiddenOpen; }
 });
+/* ---------- themes: saved on this device, applied before the page draws (see index.html) ---------- */
+const THEMES = [
+  ["paper", "Paper", ["#e8890c", "#378add", "#e24b4a"]],
+  ["slate", "Slate", ["#14928a", "#2f6fd6", "#5b5bd6"]],
+  ["forest", "Forest", ["#2f7a3a", "#c27a22", "#b5523b"]],
+  ["mono", "Mono", ["#2c2c2a", "#888780", "#f1efe8"]],
+];
+function currentTheme() { try { return localStorage.getItem("theme") || "paper"; } catch (e) { return "paper"; } }
+function setTheme(k) {
+  if (k === "paper") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = k;
+  try { localStorage.setItem("theme", k); } catch (e) { /* still applied for this visit */ }
+}
+
 function drawSettings() {
   $("#sheet-title").textContent = "Settings";
   const s = syncState, signedIn = s.email && s.status !== "signed-out";
@@ -163,6 +176,7 @@ function drawSettings() {
   const installRow = standalone ? "" : `<div class="group-h">Install</div><div class="group"><div class="row"><span class="tile-ic" style="${tile("warm")}">${svg("download")}</span><div class="grow"><div class="t">Get GooseOS as an app</div><div class="s">${isIOS ? "In Safari: Share → Add to Home Screen" : deferredPrompt ? "Adds it to your Start menu" : "Use your browser's Install option"}</div></div>${deferredPrompt ? `<button class="pill-btn" id="st-install">Install</button>` : ""}</div></div>`;
   $("#sheet-body").innerHTML = `
     <div class="group-h">Sync</div><div class="group">${syncRow}</div>
+    <div class="group-h">Theme</div><div class="group"><div class="theme-pick" id="st-theme">${THEMES.map(([k, name, sw]) => `<button type="button" data-theme-pick="${k}" aria-pressed="${k === currentTheme()}"><span class="sw">${sw.map(c => `<i style="background:${c}"></i>`).join("")}</span>${name}</button>`).join("")}</div></div>
     <div id="st-home"></div>
     ${installRow}
     ${hiddenRows()}
@@ -173,6 +187,11 @@ function drawSettings() {
   on("#st-sync", () => { sync.syncNow(); toast("Syncing…"); });
   on("#st-out", async () => { await sync.signOut(); toast("Signed out. Your stuff is still on this device."); drawSettings(); });
   on("#st-install", () => $("#install-btn").click());
+  $("#st-theme").onclick = e => {
+    const b = e.target.closest("[data-theme-pick]"); if (!b) return;
+    setTheme(b.dataset.themePick);
+    $("#st-theme").querySelectorAll("[data-theme-pick]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  };
   // pick which widgets the home screen shows
   pickerHtml().then(html => { const box = $("#st-home"); if (!box) return; box.innerHTML = html; wirePicker(box, () => { toast("Home screen updated"); renderHome(); }); });
 }
