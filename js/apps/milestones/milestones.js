@@ -297,6 +297,7 @@ function openReader(doc, { onEdit }) {
     actions: [
       { label: "Copy text", icon: "copy", run: async () => ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead.") },
       { label: "Edit", icon: "pencilLine", run: ({ close }) => { close(); onEdit(); } },
+      { label: "Open in Code", icon: "code", run: ({ close }) => { close(); location.hash = `code/doc:${encodeURIComponent(doc.id)}`; } },
     ],
     render(body) { body.innerHTML = `<article class="fv-doc ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</article>`; },
   });

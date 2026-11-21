@@ -12,6 +12,7 @@ import * as files from "../../files.js";
 import { svg } from "../../icons.js";
 import * as runner from "./runner.js";
 import { createEditor } from "./editor.js";
+import { renderMd, KINDS } from "../milestones/workspace.js";
 
 const APP = "code", MAX_OUT = 200000;
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -95,11 +96,12 @@ async function render() {
   $("#cd-menu").hidden = false;
   await loadData();
   if (!body.querySelector(".cd-win")) {
-    body.innerHTML = `<div class="cd-win">
+    body.innerHTML = `<div class="cd-split"><div class="cd-win">
       <div class="cd-top">
         <div class="cd-tabs" id="cd-tabs" role="tablist" aria-label="Programs"></div>
         <span class="ap-spacer"></span>
         <button class="icon-btn cd-stop" id="cd-stop" aria-label="Stop" title="Stop">${svg("square")}</button>
+        <button class="pill-btn secondary cd-testb cd-refb" id="cd-refb" aria-pressed="false" title="Study guides and questions from your milestones">${svg("notebook")}<span>Notes</span></button>
         <button class="pill-btn secondary cd-testb" id="cd-tests" title="Tests: check the output for given input">${svg("listChecks")}<span>Tests</span><small id="cd-tn"></small></button>
         <button class="pill-btn cd-run" id="cd-run" title="Run (Ctrl+Enter)">${svg("play")}<span>Run</span></button>
       </div>
@@ -115,19 +117,23 @@ async function render() {
         <section class="cd-pane cd-outp"><h4><span>Output</span><span class="cd-dim" id="cd-time"></span></h4>
           <div class="cd-out" id="cd-out" aria-live="polite"><p class="cd-dim cd-hint">Press Run to see what your program prints.</p></div></section>
       </div>
-    </div>`;
+    </div>
+    <aside class="cd-ref" id="cd-ref" aria-label="Notes" hidden></aside></div>`;
     ed = createEditor($("#cd-ed"), {
       onChange: v => { const f = activeFile(); if (f) { f.text = v; save(); } },
       onRun: runNow,
     });
     $("#cd-run").onclick = runNow;
     $("#cd-tests").onclick = () => testsSheet();
+    $("#cd-refb").onclick = toggleRef;
+    $("#cd-ref").addEventListener("click", refClick);
+    $("#cd-ref").addEventListener("pointerdown", refGrab);
     $("#cd-stop").onclick = () => runner.stop("stopped");
     $("#cd-input").oninput = e => { cur.input = e.target.value; save(); };
     $("#cd-keys").addEventListener("pointerdown", e => { const b = e.target.closest("[data-k]"); if (!b) return; e.preventDefault(); ed.type(b.dataset.k); });
     wireDrop($(".cd-win"));
   }
-  paintTabs(); paintFiles();
+  paintTabs(); paintFiles(); paintRef();
   const f = activeFile();
   if (document.activeElement !== ed.ta) ed.set(f.text);
   if (document.activeElement !== $("#cd-input")) $("#cd-input").value = cur.input || "";
@@ -146,7 +152,7 @@ async function openProg(id) {
   if (cur && cur.id === id) return;
   if (runner.running()) runner.stop("stopped");
   await save(true);
-  cur = progs.find(p => p.id === id); setRoute();
+  cur = progs.find(p => p.id === id); refList = false; setRoute();
   clearOut(); render();
 }
 
@@ -638,6 +644,86 @@ function newMenu(name) {
 
 /* ---------- app ---------- */
 let cssLoaded = false;
+/* ---------- notes panel: study guides and questions from milestone workspaces ---------- */
+// A program remembers the doc it was showing (doc) and whether the panel is open (ref).
+let refDocs = null, refMs = null, refList = false;
+const REF_ICON = { note: "fileText", guide: "notebook", questions: "circleHelp" };
+async function loadRef() {
+  const [d, m] = await Promise.all([store.list("docs").catch(() => []), store.list("milestones").catch(() => [])]);
+  refMs = new Map(m.filter(r => r.data && r.data.title).map(r => [r.id, r.data]));
+  refDocs = d.filter(r => r.data && String(r.data.owner || "").startsWith("milestones:")).map(r => {
+    const [, mid, sid] = r.data.owner.split(":"), ms = refMs.get(mid);
+    const step = ms && sid && (ms.steps || []).find(x => x.id === sid);
+    return { id: r.id, ...r.data, ms, mid, step: step ? step.title : "" };
+  }).filter(x => x.ms);
+}
+const shortDate = t => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+async function paintRef() {
+  const el = $("#cd-ref"); if (!el || !cur) return;
+  const open = !!cur.ref;
+  root.classList.toggle("ref-open", open); el.hidden = !open;
+  $("#cd-refb").setAttribute("aria-pressed", open);
+  if (!open) return;
+  if (!refDocs) await loadRef();
+  const doc = !refList && cur.doc && refDocs.find(d => d.id === cur.doc);
+  const close = `<button class="icon-btn" data-ref="close" aria-label="Close notes" title="Close">${svg("x")}</button>`;
+  const grab = `<div class="cd-ref-grab" data-ref="grab" aria-hidden="true"></div>`;
+  if (doc) {
+    const sub = [KINDS[doc.kind] || "Note", doc.ms.title, doc.step].filter(Boolean).join(" · ");
+    el.innerHTML = `${grab}<div class="cd-ref-h"><button class="icon-btn" data-ref="list" aria-label="All notes" title="All notes">${svg("chevronLeft")}</button>
+      <div class="cd-ref-t"><b>${esc(doc.title)}</b><span>${esc(sub)}</span></div>${close}</div>
+      <div class="cd-ref-b"><article class="fv-doc ws-md cd-ref-doc">${renderMd(doc.body || "") || `<p class="cd-dim">Nothing written yet.</p>`}</article></div>`;
+    return;
+  }
+  // every milestone that has docs, upcoming first, then the rest newest first
+  const day = new Date().setHours(0, 0, 0, 0), groups = new Map();
+  for (const d of refDocs) { if (!groups.has(d.mid)) groups.set(d.mid, []); groups.get(d.mid).push(d); }
+  const order = [...groups.keys()].sort((a, b) => {
+    const A = refMs.get(a).due || 0, B = refMs.get(b).due || 0, ua = A >= day, ub = B >= day;
+    return ua !== ub ? (ua ? -1 : 1) : ua ? A - B : B - A;
+  });
+  const row = d => `<button class="cd-ref-row ${d.id === cur.doc ? "on" : ""}" data-doc="${esc(d.id)}">${svg(REF_ICON[d.kind] || "fileText")}
+    <span class="cd-ref-t"><b>${esc(d.title)}</b><span>${esc([KINDS[d.kind] || "Note", d.step].filter(Boolean).join(" · "))}</span></span></button>`;
+  el.innerHTML = `${grab}<div class="cd-ref-h"><div class="cd-ref-t"><b>Notes</b><span>Study guides and questions from your milestones</span></div>${close}</div>
+    <div class="cd-ref-b">${order.length ? order.map(mid => {
+      const m = refMs.get(mid), list = groups.get(mid).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+      return `<div class="cd-ref-g"><h5>${esc(m.title)}<small>${esc([m.course, m.due ? shortDate(m.due) : ""].filter(Boolean).join(" · "))}</small></h5>${list.map(row).join("")}</div>`;
+    }).join("") : `<p class="cd-ref-empty">No notes yet. Add a study guide or practice questions in a milestone's workspace and they'll show up here.</p>`}</div>`;
+}
+async function toggleRef() { cur.ref = !cur.ref; await save(true); paintRef(); }
+async function refClick(e) {
+  const d = e.target.closest("[data-doc]"), a = e.target.closest("[data-ref]");
+  if (d) { cur.doc = d.dataset.doc; refList = false; await save(true); await paintRef(); $("#cd-ref .cd-ref-b").scrollTop = 0; return; }
+  if (!a) return;
+  if (a.dataset.ref === "list") { refList = true; paintRef(); }
+  if (a.dataset.ref === "close") { cur.ref = false; await save(true); paintRef(); }
+}
+// on a phone the panel sits at the bottom; drag its handle (or its header) to make it taller or shorter
+function refGrab(e) {
+  if (!e.target.closest('[data-ref="grab"]') && !(e.target.closest(".cd-ref-h") && !e.target.closest("button"))) return;
+  if (!matchMedia("(max-width: 899px)").matches) return;
+  const panel = $("#cd-ref"), y0 = e.clientY, h0 = panel.offsetHeight;
+  const move = ev => { const h = Math.min(innerHeight * 0.9, Math.max(140, h0 + y0 - ev.clientY)); root.style.setProperty("--ref-h", h + "px"); };
+  const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); try { localStorage.setItem("cd-ref-h", root.style.getPropertyValue("--ref-h")); } catch (_) {} };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+  e.preventDefault();
+}
+// from a milestone's "Open in Code": the program kept with that doc, or a new one for it
+async function openForDoc(docId) {
+  await save(true); await loadProgs(); await loadRef();
+  let p = progs.find(x => x.doc === docId);
+  if (!p) {
+    const doc = refDocs.find(d => d.id === docId);
+    if (!doc) { ctx0.toast("That note isn't there anymore"); cur = cur || progs[progs.length - 1] || null; setRoute(); return render(); }
+    if (runner.running()) runner.stop("stopped");
+    const base = doc.title.toLowerCase().replace(/^(study guide|practice questions)\s*:\s*/, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+    const name = cleanName(base || "program");
+    p = await create({ name, text: `# ${doc.title}\n\n`, input: "" }, name);
+  }
+  p.doc = docId; p.ref = true; cur = p; refList = false;
+  await save(true); setRoute(); clearOut(); render();
+}
+
 function loadCss() {
   if (cssLoaded) return; cssLoaded = true;
   const link = document.createElement("link"); link.rel = "stylesheet"; link.href = new URL("./code.css", import.meta.url).href;
@@ -645,6 +731,7 @@ function loadCss() {
 }
 async function mount(el, ctx) {
   ctx0 = ctx; root = el; loadCss();
+  try { const h = localStorage.getItem("cd-ref-h"); if (h) el.style.setProperty("--ref-h", h); } catch (_) {}
   el.classList.add("ap", "cd");
   el.innerHTML = `<div class="ap-bar"><button class="ap-home" data-home aria-label="Home">${svg("chevronLeft")}Home</button>
     <span class="ap-title">Code</span><span class="ap-spacer"></span>
@@ -658,11 +745,14 @@ async function mount(el, ctx) {
     if (!ctx.isActive() || ch.source !== "remote") return;
     if (ch.app === APP) render();
     else if (ch.app === "files" && cur) loadData().then(paintFiles);
+    else if ((ch.app === "docs" || ch.app === "milestones") && cur) { refDocs = null; paintRef(); }
   });
   window.addEventListener("beforeunload", () => { if (saveT) save(true); });
 }
 async function show(arg) {
+  refDocs = null;   // notes may have changed in Milestones since last time
   const id = arg ? decodeURIComponent(arg) : null;
+  if (id && id.startsWith("doc:")) return openForDoc(id.slice(4));
   if (id && (!cur || cur.id !== id)) { await save(true); cur = { id }; clearOut(); }
   await render();
 }
