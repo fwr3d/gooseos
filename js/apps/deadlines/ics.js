@@ -33,23 +33,31 @@ export function shortCourse(s) {
   return m ? `${m[1]} ${m[2]}` : String(s || "").trim();
 }
 
-/** Calendar events → deadlines. Skips "starts" events; keeps due dates and "ends" (closing) times. */
+/** "Lesson 5 - Available": Brightspace saying a thing opened, not that anything is due. */
+export const isAvailableOnly = title => /[-–]\s*available\s*$/i.test(String(title || "").trim());
+
+/** Calendar events → deadlines. Skips "starts" and "available" events; keeps due dates and "ends" (closing) times.
+ *  A closing time that lands at the same minute as the due time is dropped (it would be a copy). */
 export function eventsToDeadlines(events) {
   const out = [];
   for (const e of events) {
     let title = (e.SUMMARY || "").trim();
     if (!title) continue;
     if (/\b(availability starts|start date|starts?)\s*$/i.test(title)) continue;
+    if (isAvailableOnly(title)) continue;
     const due = parseDate(e.DTSTART || e.DTEND || "") || parseDate(e.DUE || "");
     if (!due) continue;
     const closes = /availability ends|end date|ends?\s*$/i.test(title);
     title = title.replace(/\s*[-–]\s*(due|availability ends|end date|ends)\s*$/i, "").trim();
+    const base = title;
     if (closes) title += " (closes)";
     const desc = e.DESCRIPTION || "";
     const link = e.URL || (desc.match(/https?:\/\/\S+/) || [])[0] || "";
-    out.push({ uid: e.UID || `${title}|${due.getTime()}`, title, course: shortCourse(e.LOCATION || ""), due: due.getTime(), url: link });
+    out.push({ uid: e.UID || `${title}|${due.getTime()}`, title, course: shortCourse(e.LOCATION || ""), due: due.getTime(), url: link, base, closes });
   }
-  return out;
+  const dueKeys = new Set(out.filter(x => !x.closes).map(x => `${x.course}|${x.base.toLowerCase()}|${x.due}`));
+  return out.filter(x => !(x.closes && dueKeys.has(`${x.course}|${x.base.toLowerCase()}|${x.due}`)))
+    .map(({ base, closes, ...rest }) => rest);
 }
 
 /** Small stable id from a calendar UID. */

@@ -11,7 +11,7 @@ import * as store from "../../store.js";
 import { svg, tile } from "../../icons.js";
 import * as lists from "../../lists.js";
 import { parseCapture, dueLabel, toLocalInput } from "./parse.js";
-import { parseICS, eventsToDeadlines, idFor } from "./ics.js";
+import { parseICS, eventsToDeadlines, idFor, isAvailableOnly } from "./ics.js";
 
 const APP = "deadlines";
 const CFG = "deadlines-config";
@@ -108,6 +108,68 @@ export async function syncBrightspace() {
   return { added, updated, removed };
 }
 
+/** Disconnect Brightspace and delete every deadline it brought in. Things you added yourself stay.
+ *  Returns how many were removed, plus undo. */
+export async function removeBrightspace() {
+  const cfg = await getConfig();
+  const gone = (await loadDeadlines()).filter(d => d.source === "brightspace");
+  for (const d of gone) await store.remove(APP, d.id);
+  await store.remove(CFG, "brightspace");
+  const undo = async () => {
+    for (const { id, ...data } of gone) await store.put(APP, id, data);
+    if (cfg.url) await store.put(CFG, "brightspace", cfg);
+  };
+  return { count: gone.length, undo };
+}
+
+/* ---------- duplicate cleanup ---------- */
+/** Title for comparing: lowercase, no "(closes)" / "(7e)" notes, no punctuation, no "submission". */
+const normTitle = t => String(t || "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9#]+/g, " ").replace(/\bsubmission\b/g, " ").replace(/\s+/g, " ").trim();
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+const wordPrefix = (a, b) => b === a || b.startsWith(a + " ");
+
+/** Are these the same assignment? Same class, and either the same title close in time,
+ *  or (Brightspace + one you typed) one title starting with the other on the same day. */
+function isCopy(a, b) {
+  if ((a.course || "").toLowerCase() !== (b.course || "").toLowerCase() || !a.due || !b.due) return false;
+  const x = normTitle(a.title), y = normTitle(b.title);
+  if (!x || !y) return false;
+  const bsA = a.source === "brightspace", bsB = b.source === "brightspace";
+  const gap = Math.abs(a.due - b.due);
+  if (bsA && bsB) return x === y && gap <= 60e3;                       // a due time and its "closes" twin
+  if (bsA !== bsB) {
+    const bs = bsA ? a : b, other = bsA ? b : a;
+    if (!other.done && other.due > bs.due + 864e5) return false;       // typed date is later: maybe an extension, leave both
+    return (x === y && gap <= 7 * 864e5) || ((wordPrefix(x, y) || wordPrefix(y, x)) && sameDay(a.due, b.due));
+  }
+  return x === y && gap <= 864e5;
+}
+
+/** Remove "Available" entries and merge copies of the same deadline. Done wins.
+ *  Returns { removed, merged, undo } (undo puts everything back), or null if nothing changed. */
+export async function cleanDuplicates() {
+  const all = await loadDeadlines(), snap = new Map(all.map(d => [d.id, { ...d }]));
+  const gone = new Set(), changed = new Map();
+  for (const d of all) if (d.source === "brightspace" && !d.edited && isAvailableOnly(d.title)) gone.add(d.id);
+  const rank = d => (d.source === "brightspace" ? 0 : 1e9) + (/\(closes\)\s*$/i.test(d.title) ? 1e8 : 0) + (d.created || 0) / 1e6;
+  const live = all.filter(d => !gone.has(d.id)).sort((a, b) => rank(a) - rank(b));
+  let merged = 0;
+  for (let i = 0; i < live.length; i++) {
+    const k = live[i]; if (gone.has(k.id)) continue;
+    for (let j = i + 1; j < live.length; j++) {
+      const o = live[j]; if (gone.has(o.id) || !isCopy(k, o)) continue;
+      gone.add(o.id); merged++;
+      if ((o.done && !k.done) || (o.list && !k.list)) { k.done = k.done || o.done; k.list = k.list || o.list; changed.set(k.id, true); }
+    }
+  }
+  if (!gone.size && !changed.size) return null;
+  for (const id of gone) await store.remove(APP, id);
+  for (const id of changed.keys()) { const { id: _i, ...data } = live.find(d => d.id === id); await store.put(APP, id, data); }
+  const removed = gone.size - merged;
+  const undo = async () => { for (const id of [...gone, ...changed.keys()]) { const { id: _i, ...data } = snap.get(id); await store.put(APP, id, data); } };
+  return { removed, merged, undo };
+}
+
 /* ---------- view state ---------- */
 let ctx0, root;
 const $ = s => root.querySelector(s);
@@ -177,8 +239,10 @@ async function renderNow() {
   wireConnect();
 
   const SECS = [["late", "Overdue"], ["today", "Today"], ["tomorrow", "Tomorrow"], ["week", "This week"], ["later", "Later"], ["nodate", "No date"]];
+  const stale = g.late.filter(d => d.due < Date.now() - 7 * 864e5).length;
   let html = SECS.filter(([k]) => g[k].length).map(([k, label]) =>
-    `<section class="dl-sec ${k === "late" ? "late" : ""}"><h3>${label}<span class="n">${g[k].length}</span></h3><div class="dl-list">${g[k].map(rowHtml).join("")}</div></section>`).join("");
+    `<section class="dl-sec ${k === "late" ? "late" : ""}"><h3>${label}<span class="n">${g[k].length}</span></h3><div class="dl-list">${g[k].map(rowHtml).join("")}</div>
+      ${k === "late" && stale ? `<button class="dl-more" data-act="clear-old">Mark the ${stale} that are over a week late as done</button>` : ""}</section>`).join("");
   if (!html) {
     const ln = listFilter !== "all" ? lists.byId(allLists, listFilter) : null;
     html = ln && listFilter !== "school" ? `<div class="dl-empty"><b>Nothing in ${esc(ln.name)}</b>Add one above, like “${esc(ln.name.toLowerCase())} ${ln.id === "money" ? "pay rent" : ln.id === "frat" ? "chapter meeting" : "call mom"} sun 7pm”.</div>`
@@ -197,6 +261,7 @@ async function renderNow() {
   $("#dl-bs").hidden = !tucked;
   const sync = $("#dl-sync");
   sync.hidden = !cfg.url;
+  $("#dl-bs-off").hidden = !cfg.url;
   sync.title = cfg.lastSync ? `Brightspace synced ${new Date(cfg.lastSync).toLocaleString()}` : "Sync Brightspace";
 }
 
@@ -243,7 +308,16 @@ async function runSync(manual) {
     if (manual) ctx0.toast(r.added || r.updated || r.removed ? `Brightspace: ${r.added} new, ${r.updated} changed, ${r.removed} removed.` : "Brightspace is up to date.");
   } catch (e) {
     if (manual || e.message !== "not-connected") ctx0.toast(navigator.onLine ? e.message : "You're offline. Brightspace will sync when you're back online.");
-  } finally { btn.classList.remove("spin"); render(); }
+  } finally { btn.classList.remove("spin"); await tidy(); render(); }
+}
+
+/** Clean copies and "Available" entries, and say so (with Undo) when something changed. */
+async function tidy() {
+  try {
+    const r = await cleanDuplicates(); if (!r) return;
+    const bits = [r.merged ? `merged ${r.merged} duplicate${r.merged === 1 ? "" : "s"}` : "", r.removed ? `hid ${r.removed} “Available” entr${r.removed === 1 ? "y" : "ies"}` : ""].filter(Boolean);
+    ctx0.toast(`Tidied up: ${bits.join(", ")}.`, { label: "Undo", run: async () => { await r.undo(); document.querySelector(".toast").hidden = true; render(); } });
+  } catch (e) { console.error(e); }
 }
 
 /* ---------- edit sheet ---------- */
@@ -355,6 +429,7 @@ const MARKUP = () => `
     <span class="dl-spacer"></span>
     <button class="icon-btn" id="dl-bs" aria-label="Connect Brightspace" title="Connect Brightspace" hidden>${svg("graduationCap")}</button>
     <button class="icon-btn" id="dl-sync" aria-label="Sync Brightspace" hidden>${svg("refreshCw")}</button>
+    <button class="icon-btn" id="dl-bs-off" aria-label="Remove Brightspace and its deadlines" title="Remove Brightspace and its deadlines" hidden>${svg("trash2")}</button>
     <button class="icon-btn" id="dl-new" aria-label="New deadline">${svg("plus")}</button>
   </div>
   <div class="dl-scroll"><div class="dl-body">
@@ -408,6 +483,11 @@ async function mount(el, ctx) {
   };
   $("#dl-new").onclick = () => openEdit(null);
   $("#dl-sync").onclick = () => runSync(true);
+  $("#dl-bs-off").onclick = async () => {
+    const r = await removeBrightspace(); tuckCard(true);
+    ctx0.toast(`Brightspace removed: ${r.count} deadline${r.count === 1 ? "" : "s"} deleted.`, { label: "Undo", run: async () => { await r.undo(); tuckCard(false); document.querySelector(".toast").hidden = true; render(); } });
+    render();
+  };
   $("#dl-bs").onclick = () => { tuckCard(false); render(); };
   $("#dl-filters").addEventListener("click", e => {
     if (e.target.closest('[data-act="lists"]')) return openLists();
@@ -416,6 +496,12 @@ async function mount(el, ctx) {
   $("#dl-courses").addEventListener("click", e => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; render(); } });
   try { listFilter = localStorage.getItem("dl-list") || "all"; } catch (e) { /* ignore */ }
   $("#dl-sections").addEventListener("click", async e => {
+    if (e.target.closest('[data-act="clear-old"]')) {
+      const cut = Date.now() - 7 * 864e5, old = items.filter(d => !d.done && d.due && d.due < cut && (filter === "all" || d.course === filter) && (listFilter === "all" || lists.listOf(d, allLists) === listFilter));
+      for (const { id, ...data } of old) await store.put(APP, id, { ...data, done: true });
+      ctx0.toast(`Marked ${old.length} as done.`, { label: "Undo", run: async () => { for (const { id, ...data } of old) await store.put(APP, id, { ...data, done: false }); document.querySelector(".toast").hidden = true; render(); } });
+      render(); return;
+    }
     const row = e.target.closest(".dl-row"); if (!row) return;
     const d = items.find(x => x.id === row.dataset.id); if (!d) return;
     const act = e.target.closest("[data-act]")?.dataset.act;
@@ -432,6 +518,7 @@ async function mount(el, ctx) {
 
 /** show("d-abc") opens that deadline (links like #deadlines/d-abc from Today and Reminders). */
 async function show(arg) {
+  await tidy();
   await render();
   const want = typeof arg === "string" && arg ? decodeURIComponent(arg) : "";
   if (want) { const d = items.find(x => x.id === want); if (d) openEdit(d); }
