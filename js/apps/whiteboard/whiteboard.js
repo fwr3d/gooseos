@@ -1,10 +1,13 @@
 // Whiteboard app: pen, highlighter, eraser, shapes, text, multiple boards.
 // Boards are saved through the shared store as items of app "whiteboard":
-//   { name, bg, strokes, created }
+//   { name, bg, strokes, created, course? }
+//   course: the class code (from Schedule) this board belongs to. While that class is
+//   on, opening Whiteboard goes straight to its board (made the first time).
 // Each stroke is { t, c, w, p: [x, y, ...], s?, e?, d? } in board coordinates.
 //   e: arrowheads on a line or arrow (0 none, 1 end, 2 start, 3 both); d: 1 dashed, 2 dotted.
 // Pan/zoom position is kept per device only (localStorage), so it doesn't sync.
 import { svg } from "../../icons.js";
+import { loadCourses, isInClass } from "../schedule/schedule.js";
 
 const APP = "whiteboard";
 
@@ -53,7 +56,7 @@ async function loadBoards() {
   board = boards.find(b => b.id === (board && board.id)) || boards.find(b => b.id === lastId) || boards[0];
   loadView();
 }
-const dataOf = b => ({ name: b.name, bg: b.bg, strokes: b.strokes, created: b.created });
+const dataOf = b => ({ name: b.name, bg: b.bg, strokes: b.strokes, created: b.created, ...(b.course ? { course: b.course } : {}) });
 function save(now) {
   setStatus("saving");
   clearTimeout(saveT);
@@ -78,6 +81,7 @@ function saveView() { clearTimeout(viewT); viewT = setTimeout(() => lsSet("wb-vi
 
 function renderBar() {
   $("#wb-board-name").textContent = board.name;
+  const tag = $("#wb-cls"); tag.hidden = !board.course || board.course === board.name; tag.textContent = board.course || "";
   updateUndo(); updateZoom();
 }
 function switchTo(b) { commitText(); sel = null; board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
@@ -454,10 +458,11 @@ function openMenu(anchor, html, wire) {
 }
 function boardMenu(anchor) {
   const html = `<div class="wb-mlabel">Boards</div>` +
-    boards.map(b => `<button class="wb-mi ${b.id === board.id ? "on" : ""}" data-b="${b.id}">${svg(b.id === board.id ? "check" : "layers")}<span class="grow">${esc(b.name)}</span></button>`).join("") +
+    boards.map(b => `<button class="wb-mi ${b.id === board.id ? "on" : ""}" data-b="${b.id}">${svg(b.id === board.id ? "check" : "layers")}<span class="grow">${esc(b.name)}</span>${b.course && b.course !== b.name ? `<small class="wb-mtag">${esc(b.course)}</small>` : ""}</button>`).join("") +
     `<div class="wb-msep"></div>
      <button class="wb-mi" data-act="new">${svg("plus")}<span class="grow">New board</span></button>
      <button class="wb-mi" data-act="rename">${svg("pencilLine")}<span class="grow">Rename “${esc(board.name)}”</span></button>
+     <button class="wb-mi" data-act="class">${svg("graduationCap")}<span class="grow">${board.course ? `Class: ${esc(board.course)}` : "Set the class"}</span></button>
      <button class="wb-mi danger" data-act="delete">${svg("trash2")}<span class="grow">Delete “${esc(board.name)}”</span></button>`;
   openMenu(anchor, html, m => {
     m.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { closeMenu(); switchTo(boards.find(x => x.id === b.dataset.b)); });
@@ -469,6 +474,22 @@ function boardMenu(anchor) {
       const ok = () => { const v = inp.value.trim(); if (v) { board.name = v; save(true); renderBar(); } closeMenu(); };
       m.querySelector("form").onsubmit = e => { e.preventDefault(); ok(); };
       m.querySelector("[data-yes]").onclick = ok; m.querySelector("[data-no]").onclick = closeMenu;
+    };
+    m.querySelector('[data-act="class"]').onclick = async () => {
+      const cs = await loadCourses().catch(() => []);
+      const owner = c => boards.find(b => b.course === c && b !== board);
+      m.innerHTML = `<div class="wb-mlabel">Class for “${esc(board.name)}”</div>` +
+        (cs.length ? cs.map(c => `<button class="wb-mi ${board.course === c.code ? "on" : ""}" data-c="${esc(c.code)}">${svg(board.course === c.code ? "check" : "graduationCap")}<span class="grow">${esc(c.code)}</span>${owner(c.code) ? `<small class="wb-mtag">on ${esc(owner(c.code).name)}</small>` : ""}</button>`).join("")
+          : `<div class="wb-ask">Add your classes in Schedule first.</div>`) +
+        `<div class="wb-msep"></div><button class="wb-mi ${board.course ? "" : "on"}" data-c="">${svg(board.course ? "x" : "check")}<span class="grow">No class</span></button>
+        <p class="wb-mnote">While a class is on, Whiteboard opens its board.</p>`;
+      m.querySelectorAll("[data-c]").forEach(b => b.onclick = () => {
+        const code = b.dataset.c, prev = code && owner(code);
+        if (prev) { delete prev.course; ctx0.store.put(APP, prev.id, dataOf(prev)); }   // one board per class
+        if (code) board.course = code; else delete board.course;
+        save(true); renderBar(); closeMenu();
+        ctx0.toast(code ? `“${board.name}” is the ${code} board` : `“${board.name}” has no class now`);
+      });
     };
     m.querySelector('[data-act="delete"]').onclick = () => {
       m.innerHTML = `<div class="wb-ask">Delete “${esc(board.name)}” on all your devices? This can't be undone.</div>
@@ -541,7 +562,7 @@ async function exportImage() {
 const MARKUP = () => `
   <div class="wb-bar">
     <button class="wb-home" data-home aria-label="Home">${svg("chevronLeft")}Home</button>
-    <button class="wb-board" id="wb-board" aria-haspopup="menu"><span id="wb-board-name"></span>${svg("chevronDown")}</button>
+    <button class="wb-board" id="wb-board" aria-haspopup="menu"><span id="wb-board-name"></span><small class="wb-cls" id="wb-cls" hidden></small>${svg("chevronDown")}</button>
     <span class="wb-spacer"></span>
     <span class="wb-status" id="wb-status" aria-live="polite"></span>
     <button class="icon-btn" id="wb-undo" aria-label="Undo" title="Undo (Ctrl+Z)">${svg("undo2")}</button>
@@ -646,7 +667,17 @@ async function mount(el, ctx) {
   if (document.fonts) document.fonts.ready.then(() => redraw());
 }
 
-function show() { requestAnimationFrame(resize); }
+// a class going on right now: open its board (once per class meeting, so switching away sticks)
+async function classBoard() {
+  const now = await isInClass().catch(() => null); if (!now) return;
+  const code = now.course.code, key = `${code}@${now.start}`;
+  if (lsGet("wb-auto") === key) return;
+  lsSet("wb-auto", key);
+  let b = boards.find(x => x.course === code);
+  if (!b) { b = newBoard(code); b.course = code; boards.push(b); await ctx0.store.put(APP, b.id, dataOf(b)); }
+  if (b !== board) { switchTo(b); ctx0.toast(`${code} is on now, so here's its board`); }
+}
+function show() { requestAnimationFrame(resize); classBoard(); }
 function hide() { commitText(); closeMenu(); }
 
 /* ---------- home-screen widget: preview of the latest board ---------- */
