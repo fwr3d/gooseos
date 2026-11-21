@@ -54,6 +54,9 @@ export async function knownCourses() {
   return [...seen.values()];
 }
 
+/** CS classes can be worked on in the Code app. */
+export const isCS = d => /^\s*cs\b/i.test((d && d.course) || "");
+
 /** Exams get the full reminder ramp: tagged by the syllabus scanner, or named like one. */
 const isExam = d => d.type === "exam" || (/\b(exam|midterm|final)\b/i.test(d.title || "") && !/\bfinal\s+(project|paper|presentation|report|essay)\b/i.test(d.title || ""));
 
@@ -346,6 +349,7 @@ function openEdit(d) {
     <label>From<select class="field" name="source">${Object.entries(SOURCES).map(([k, v]) => `<option value="${k}" ${d.source === k ? "selected" : ""}>${v.label}</option>`).join("")}</select></label>
     <label>Due<input class="field" type="datetime-local" name="due" value="${d.due ? toLocalInput(d.due) : ""}"></label>
     ${d.url ? `<a class="link-btn" href="${esc(d.url)}" target="_blank" rel="noopener">${svg("externalLink")} Open in Brightspace</a>` : ""}
+    ${!isNew && isCS(d) ? `<button type="button" class="link-btn" data-act="code">${svg("code")} Open in Code</button>` : ""}
     ${isNew ? "" : `<button type="button" class="link-btn" data-act="breakdown" hidden>${svg("listChecks")} Break it down into steps</button>`}
     <div class="acts">
       ${isNew ? "<span></span>" : `<button type="button" class="pill-btn secondary" data-act="del" style="color:var(--bad)">Delete</button>`}
@@ -360,6 +364,11 @@ function openEdit(d) {
   f.querySelector('[data-act="cancel"]').onclick = close;
   const del = f.querySelector('[data-act="del"]');
   if (del) del.onclick = async () => { close(); await forget(d); await store.remove(APP, d.id); ctx0.toast(`Deleted “${d.title}”`); render(); };
+  const code = f.querySelector('[data-act="code"]');
+  if (code) {
+    store.list("code").then(ps => { if (ps.some(p => p.data && p.data.deadline === d.id)) code.lastChild.textContent = " Keep working in Code"; }).catch(() => {});
+    code.onclick = () => { close(); location.hash = `code/deadline:${encodeURIComponent(d.id)}`; };
+  }
   // "Break it down" appears once the Milestones app exists
   const bd = f.querySelector('[data-act="breakdown"]');
   if (bd) import("../index.js").then(async m => {
