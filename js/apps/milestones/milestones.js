@@ -161,8 +161,8 @@ async function renderDetail(id) {
   const tool = (act, icon, label) => `<button class="ms-tool" data-act="${act}" aria-label="${label}" title="${label}">${svg(icon)}</button>`;
   const stepRow = s => {
     const late = !s.done && s.date < now, isSel = s.id === sel;
-    const ask = s.kind === "quiz" && s.done && !s.rating;
-    const rated = s.rating ? `<span class="ms-tag ${s.rating === "good" ? "green" : "warm"}">${s.rating === "good" ? "got it" : "shaky"}</span>` : "";
+    const ask = (s.kind === "study" || s.kind === "quiz") && s.done && !s.rating;
+    const rated = s.rating ? `<button class="ms-tag ${s.rating === "good" ? "green" : "warm"}" data-act="rate-clear" title="Change how it went">${s.rating === "good" ? "got it" : "shaky"}</button>` : "";
     const hasAtt = onStep(s.id).length + docsOn(s.id).length > 0;
     const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}</span>`;
     return `<div class="ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${isSel ? "sel" : ""}" data-sid="${s.id}">
@@ -204,7 +204,8 @@ async function renderDetail(id) {
         <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="ms-ob sm" type="submit">Add</button></form>
       </div>
     </div><aside class="ms-ws" id="ms-ws" aria-label="Workspace"></aside></div>
-    </div>`;
+    </div>
+    <div class="ms-drophint" id="ms-drophint" aria-hidden="true"></div>`;
   if (addOpen) $("#ms-addstep input")?.focus();
   drawWorkspace();
 }
@@ -273,14 +274,14 @@ function drawWorkspace() {
         <button class="ms-ob sm" data-act="ws-note">${svg("plus")}Note</button>
         <label class="ms-ob sm ws-file" tabindex="0">${svg("paperclip")}File<input type="file" id="ms-fpick" multiple hidden></label></span>
     </div>
-    <div class="ws-prompt">
+    ${m.template === "exam" ? `<div class="ws-prompt">
       <span class="ws-pic">${svg("sparkles")}</span>
       <span class="grow"><b>Study prompt</b><span>${esc(promptSub)}</span></span>
       <button class="ms-ob sm ws-copy" data-act="ws-copy">${svg("copy")}Copy prompt</button>
-    </div>
+    </div>` : ""}
     <div class="ws-list">
       ${myDocs.map(docRow).join("")}${myFiles.map(fileRow).join("")}
-      ${myDocs.length || myFiles.length ? "" : `<div class="ws-empty">${step ? "Nothing on this step yet." : "Nothing here yet."} Add a note, or attach the spec, rubric or your drafts.${step ? "" : " A rubric goes on the submit step by itself."}</div>`}
+      ${myDocs.length || myFiles.length ? "" : `<label class="ws-empty ws-dropzone">${svg("upload")}<b>Drop files here</b><span>Or <u>choose files</u>, or paste with Ctrl+V. Whole folders work too.${step ? "" : " A rubric goes on the submit step by itself."}</span><input type="file" class="ws-fpick2" multiple hidden></label>`}
     </div>
     ${also.length ? `<button class="ws-also" data-act="ws-all">Also on the whole ${whole}: ${esc(also.join(", "))}</button>` : ""}`;
 }
@@ -296,7 +297,7 @@ function openReader(doc, { onEdit }) {
   });
 }
 /** For the doc editor: builds the prompt for a guide or practice questions on this step. */
-const promptFor = sid => kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind);
+const promptFor = sid => ws.m.template === "exam" ? kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind) : null;
 function markSel() {
   root.querySelectorAll(".ms-step").forEach(r => r.classList.toggle("sel", r.dataset.sid === sel));
 }
@@ -438,6 +439,86 @@ async function openSheet({ edit, prefill = {} } = {}) {
   setTimeout(() => (m.title ? f.due : f.title).focus(), 50);
 }
 
+/* ---------- adding files: the File button, drag and drop (files or folders), and paste ---------- */
+let adding = false;
+/** Attach files to the open milestone: to step `sid`, or to the whole plan (a rubric then goes to the submit step). */
+async function addFiles(list, sid) {
+  const id = current; if (!id || !list.length || !ws) return;
+  if (adding) { ctx0.toast("Still adding the last batch. Try again in a moment."); return; }
+  adding = true;
+  const m = ws.m, step = sid ? m.steps.find(s => s.id === sid) : null;
+  let ok = 0; const failed = [];
+  try {
+    for (const [i, file] of list.entries()) {
+      if (list.length > 1) ctx0.toast(`Adding ${i + 1} of ${list.length}…`);
+      const to = step || (/rubric/i.test(file.name) ? submitStep(m) : null);
+      try { await files.add(file, { scope: "milestone", owner: ownerOf(id, to && to.id) }); ok++; }
+      catch (err) { failed.push(`${file.name}: ${files.errorText(err)}`); }
+    }
+  } finally { adding = false; }
+  if (current === id) await renderDetail(id);
+  const where = step ? ` to “${step.title}”` : "";
+  if (failed.length) ctx0.toast(ok ? `Added ${ok}${where}. ${failed.length} didn't: ${failed[0]}` : failed[0]);
+  else ctx0.toast(ok === 1 ? `Added ${list[0].name}${where}.` : `Added ${ok} files${where}.`);
+}
+/** Everything in a drop, opening folders (and folders inside them). */
+async function droppedFiles(dt) {
+  const items = [...(dt.items || [])].filter(it => it.kind === "file");
+  const entries = items.map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  if (!entries.length) return [...(dt.files || [])];
+  const out = [];
+  const walk = async entry => {
+    if (entry.isFile) { out.push(await new Promise((res, rej) => entry.file(res, rej))); return; }
+    if (!entry.isDirectory) return;
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) break;
+      for (const e of batch) if (!e.name.startsWith(".")) await walk(e);
+    }
+  };
+  for (const e of entries) await walk(e).catch(() => {});
+  return out;
+}
+function wireDrop() {
+  const main = $("#ms-main");
+  let depth = 0;
+  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+  const target = e => {
+    const row = e.target.closest(".ms-step");
+    if (row) return { el: row, sid: row.dataset.sid };
+    if (e.target.closest("#ms-ws")) return { el: $("#ms-ws"), sid: sel };
+    return { el: $(".ms-page"), sid: sel };
+  };
+  const clear = () => main.querySelectorAll(".drop-on").forEach(x => x.classList.remove("drop-on"));
+  main.addEventListener("dragenter", e => { if (!current || !hasFiles(e)) return; depth++; main.classList.add("dropping"); });
+  main.addEventListener("dragover", e => {
+    if (!current || !hasFiles(e)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+    const t = target(e); clear(); t.el?.classList.add("drop-on");
+    const name = t.sid ? ws?.m.steps.find(s => s.id === t.sid)?.title : null;
+    const hint = $("#ms-drophint"); if (hint) hint.textContent = name ? `Drop to add to “${name}”` : `Drop to add to the whole ${ws?.m.template === "exam" ? "exam" : "project"}`;
+  });
+  main.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--depth <= 0) { depth = 0; main.classList.remove("dropping"); clear(); } });
+  main.addEventListener("drop", async e => {
+    if (!current || !hasFiles(e)) return;
+    e.preventDefault(); depth = 0; main.classList.remove("dropping");
+    const t = target(e); clear();
+    addFiles(await droppedFiles(e.dataTransfer), t.sid || null);
+  });
+  // paste: screenshots and copied files go into the open workspace
+  document.addEventListener("paste", e => {
+    const t = e.target instanceof Element ? e.target : null;
+    if (!current || !ctx0.isActive() || (t && t.closest("input,textarea,[contenteditable]"))) return;
+    const list = [...(e.clipboardData?.files || [])];
+    if (!list.length) return;
+    e.preventDefault();
+    const d = new Date(), pad = n => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}`;
+    addFiles(list.map(f => f.name && f.name !== "image.png" ? f : new File([f], `Pasted ${stamp}.${(f.type.split("/")[1] || "png").replace("jpeg", "jpg")}`, { type: f.type })), sel);
+  });
+}
+
 /** Switch between the list and one milestone without adding history entries (so Home still goes home). */
 function go(id) {
   history.replaceState(null, "", id ? `#${APP}/${id}` : `#${APP}`);
@@ -470,7 +551,7 @@ async function mount(el, ctx) {
   $("#ms-back").onclick = () => go("");
 
   const closeMenu = () => { const m = root.querySelector(".ms-menu"); if (m && !m.hidden) { m.hidden = true; root.querySelector('[data-act="more"]')?.setAttribute("aria-expanded", "false"); } };
-  document.addEventListener("click", e => { if (!e.target.closest(".ms-more")) closeMenu(); });
+  document.addEventListener("click", e => { if (!(e.target instanceof Element && e.target.closest(".ms-more"))) closeMenu(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
   $("#ms-main").addEventListener("click", async e => {
     const act = e.target.closest("[data-act]")?.dataset.act;
@@ -529,12 +610,15 @@ async function mount(el, ctx) {
       const m = await update(id, m => ({ ...m, steps: m.steps.map(s => s.id === sid ? { ...s, done: !s.done } : s) }));
       if (m && !m.steps.some(s => !s.done)) ctx0.toast(`All steps done for “${m.title}”. Nice work.`);
       renderDetail(id);
+    } else if (act === "rate-clear") {
+      await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, rating: null } : x) }));
+      renderDetail(id);
     } else if (act === "rate-good" || act === "rate-shaky") {
       const shaky = act === "rate-shaky";
       const m = await update(id, m => {
         const s = m.steps.find(x => x.id === sid); if (!s) return m;
         const steps = m.steps.map(x => x.id === sid ? { ...x, rating: shaky ? "shaky" : "good" } : x);
-        if (shaky) steps.push({ id: "s" + uid(), title: `Review again: ${s.topic || s.title.replace(/^Quiz yourself:\s*/, "")}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin: 45, done: false, kind: "again", topic: s.topic });
+        if (shaky) steps.push({ id: "s" + uid(), title: `Review again: ${s.topic || s.title.replace(/^(Quiz yourself|Study):\s*/, "")}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin: 45, done: false, kind: "again", topic: s.topic });
         return { ...m, steps };
       });
       if (shaky && m) { const a = m.steps[m.steps.length - 1]; ctx0.toast(`Added “${a.title}” for ${dueLabel(a.date)}.`); }
@@ -610,22 +694,15 @@ async function mount(el, ctx) {
   $("#ms-main").addEventListener("change", async e => {
     if (!current) return;
     const id = current;
+    if (e.target.classList.contains("ws-fpick2")) { const list = [...e.target.files]; e.target.value = ""; addFiles(list, sel); return; }
     if (e.target.id === "ms-fpick") {
       const list = [...e.target.files]; e.target.value = "";
-      const m = ws && ws.m;
-      for (const file of list) {
-        // on a step: attach there. On the whole project: a rubric goes to the submit step.
-        const sub = sel && m ? m.steps.find(s => s.id === sel) : /rubric/i.test(file.name) && m ? submitStep(m) : null;
-        try {
-          await files.add(file, { scope: "milestone", owner: ownerOf(id, sub && sub.id) });
-          ctx0.toast(sub ? `Attached ${file.name} to “${sub.title}”.` : `Attached ${file.name}.`);
-        } catch (err) { ctx0.toast(`${file.name}: ${files.errorText(err)}`); }
-      }
-      renderDetail(id);
+      addFiles(list, sel);
     } else if (e.target.dataset.act === "fstep") {
       await files.update(e.target.closest("[data-fid]").dataset.fid, { owner: ownerOf(id, e.target.value) }); renderDetail(id);
     }
   });
+  wireDrop();
   $("#ms-main").addEventListener("keydown", e => {
     if (e.key === "Enter" && e.target.classList.contains("ws-file")) { e.preventDefault(); e.target.querySelector("input").click(); }
   });
