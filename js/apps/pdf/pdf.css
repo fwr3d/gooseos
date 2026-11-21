@@ -42,3 +42,10 @@
 .pf-split>.pf-main{min-width:0}
 .pf-split>.np{margin:12px 12px 12px 0}
 @media (max-width:899px){.pf.np-open .pf-main{padding-bottom:var(--np-h,45dvh)}.pf-split>.np{margin:0}}
+/* turn it in */
+.pf-turnin:empty{display:none}
+.pf-turnin{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px}
+.pf-turnin .note{margin:0;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.pf-turnin .note .ic{width:15px;height:15px;color:var(--good)}
+.pf-ask{display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--line);border-radius:12px}
+.pf-ask span{font-size:13px;color:var(--muted)}

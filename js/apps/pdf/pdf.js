@@ -6,6 +6,7 @@
 // and you can come back and keep going:
 //   app "pdf", id <file id>: { pages: { "<n>": { strokes: [...], texts: [...] } }, updated, doc?, ref? }
 //     doc, ref: the notes panel's doc and whether it's open (js/notes-panel.js)
+//     deadline: the deadline id (store app "deadlines") this PDF gets turned in for
 //     stroke: { t: "pen" | "hl", c: color, w: width (pt), p: [x, y, x, y, ...] (pt from the top left) }
 //     text:   { id, x, y (pt, top left), s: size (pt), c: color, v: text }
 // "Save as PDF" draws each page and your marks into an image and builds a new PDF (makepdf.js).
@@ -46,7 +47,11 @@ function savable() {
   for (const [n, d] of Object.entries(marks.pages)) out[n] = { strokes: d.strokes, texts: d.texts.filter(t => t.v.trim() || t.id === typing) };
   return out;
 }
-function saveNow() { if (fileId && marks) return store.put(APP, fileId, { pages: savable(), updated: Date.now(), ...(marks.doc ? { doc: marks.doc } : {}), ...(marks.ref ? { ref: true } : {}) }); }
+function saveNow() {
+  if (!fileId || !marks) return;
+  const extra = {}; for (const k of ["doc", "ref", "deadline"]) if (marks[k]) extra[k] = marks[k];
+  return store.put(APP, fileId, { pages: savable(), updated: Date.now(), ...extra });
+}
 function persist() { clearTimeout(saveT); saveT = setTimeout(saveNow, 700); }
 
 /* ---------- list of PDFs ---------- */
@@ -92,7 +97,7 @@ async function openDoc(id) {
   catch (e) { $("#pf-main").innerHTML = `<div class="ap-body"><div class="ap-card"><div class="ap-empty"><b>Couldn't read this PDF</b>It might be damaged or password protected.</div></div></div>`; return; }
   if (token !== loadToken) return;
   const saved = await store.get(APP, id);
-  marks = { pages: (saved && saved.pages) || {}, doc: saved && saved.doc, ref: !!(saved && saved.ref) };
+  marks = { pages: (saved && saved.pages) || {}, doc: saved && saved.doc, ref: !!(saved && saved.ref), deadline: saved && saved.deadline };
   notes.paint();
   undo = []; updateUndo();
   $("#pf-tools").hidden = false;
@@ -308,13 +313,16 @@ function exportSheet(blob, name) {
     <button class="pill-btn" data-x="dl">${svg("download")} Download</button>
     <button class="pill-btn secondary" data-x="send">${svg("arrowLeftRight")} Send to my other devices</button>
     ${forMs ? `<button class="pill-btn secondary" data-x="attach">${svg("paperclip")} Attach to the same milestone</button>` : ""}
+    <div class="pf-turnin" id="pf-turnin"></div>
     <div class="acts"><span></span><button class="pill-btn secondary" data-x="close">Done</button></div></div>`;
   root.appendChild(back);
   const close = () => back.remove();
+  turnIn(back.querySelector("#pf-turnin"));
   back.addEventListener("click", async e => {
     if (e.target === back) return close();
     const x = e.target.closest("[data-x]")?.dataset.x; if (!x) return;
     if (x === "close") return close();
+    if (x === "turnin" || x === "done" || x === "notyet") return;   // handled in turnIn
     if (x === "dl") { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 20000); return; }
     try {
       const file = new File([blob], name, { type: "application/pdf" });
@@ -323,6 +331,45 @@ function exportSheet(blob, name) {
       e.target.closest("[data-x]").disabled = true;
     } catch (err) { ctx0.toast(files.errorText(err)); }
   });
+}
+
+/* ---------- turn it in: which deadline this PDF is for, open its page, then mark it done ---------- */
+const siteOf = url => { try { const h = new URL(url).hostname; return /gradescope/i.test(h) ? "Gradescope" : /brightspace|desire2learn|d2l/i.test(h) ? "Brightspace" : h.replace(/^www\./, ""); } catch (e) { return ""; } };
+const dueText = t => t ? new Date(t).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "no date";
+async function turnIn(box) {
+  const all = (await store.list("deadlines").catch(() => [])).filter(r => r.data && r.data.title !== undefined).map(r => ({ id: r.id, ...r.data }));
+  // a PDF from a milestone that's linked to a deadline: that one
+  if (!marks.deadline && meta.scope === "milestone" && meta.owner) {
+    const m = await store.get("milestones", String(meta.owner).split(":")[1]).catch(() => null);
+    const id = m && m.deadlineKey && m.deadlineKey.replace(/^deadlines:/, "");
+    if (id && all.some(d => d.id === id)) { marks.deadline = id; saveNow(); }
+  }
+  const list = all.filter(d => !d.done || d.id === marks.deadline).sort((a, b) => (a.due || Infinity) - (b.due || Infinity));
+  if (!list.length) { box.innerHTML = ""; return; }
+  const paint = (asking = false) => {
+    const d = all.find(x => x.id === marks.deadline), site = d && d.url ? siteOf(d.url) : "";
+    box.innerHTML = `<label>Turn it in for<select class="field" id="pf-dl">
+        <option value="">Pick a deadline…</option>
+        ${list.map(x => `<option value="${esc(x.id)}" ${x.id === marks.deadline ? "selected" : ""}>${esc([x.title, x.course, dueText(x.due)].filter(Boolean).join(" · "))}${x.done ? " (done)" : ""}</option>`).join("")}
+      </select></label>
+      ${!d ? "" : asking ? `<div class="pf-ask"><b>Did you turn it in?</b><span>${esc(d.title)}</span>
+          <div class="acts"><button class="pill-btn secondary" data-x="notyet">Not yet</button><button class="pill-btn" data-x="done">${svg("circleCheck")} Mark done</button></div></div>`
+        : d.done ? `<p class="note">${svg("circleCheck")} Marked done.</p>`
+        : `<button class="pill-btn secondary" data-x="turnin">${svg(d.url ? "externalLink" : "circleCheck")} ${d.url ? `Open ${esc(site)} to upload it` : "Mark it turned in"}</button>
+           ${d.url ? `<p class="note">Download it first, then upload it there.</p>` : ""}`}`;
+    box.querySelector("#pf-dl").onchange = e => { marks.deadline = e.target.value || undefined; saveNow(); paint(); };
+  };
+  box.onclick = async e => {
+    const x = e.target.closest("[data-x]")?.dataset.x, d = all.find(y => y.id === marks.deadline);
+    if (!d) return;
+    if (x === "turnin") { if (d.url) { window.open(d.url, "_blank", "noopener"); paint(true); } else paint(true); }
+    if (x === "notyet") paint();
+    if (x === "done") {
+      await (await import("../deadlines/deadlines.js")).complete(`deadlines:${d.id}`);
+      d.done = true; paint(); ctx0.toast(`Marked “${d.title}” done`);
+    }
+  };
+  paint();
 }
 
 /* ---------- app plumbing ---------- */
