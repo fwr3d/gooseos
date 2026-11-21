@@ -86,5 +86,10 @@ export const ICONS = {
 
 /** Full <svg> for an icon name. */
 /** Inline style for an app tile: solid color, white icon. tint is warm | red | blue | green | violet | teal | pink | navy | gray. */
-export const tile = tint => `background:var(--tint-${tint || "gray"}-solid);color:#fff`;
+export const tile = tint => `background:var(--tint-${tint || "gray"}-solid);color:#fff;--tc:var(--tint-${tint || "gray"}-solid)`;
 export const svg = (name, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+
+import { HAND } from "./hand-icons.js";
+/** App-tile icon: the hand-drawn glyph when there is one, otherwise the outline icon. */
+export const handSvg = (name, cls = "") => `<svg class="ic ic-app ic-hand ${cls}" viewBox="${HAND[name][0]}" aria-hidden="true">${HAND[name][1]}</svg>`;
+export const appSvg = (name, cls = "") => HAND[name] ? handSvg(name, cls) : svg(name, `ic-app ${cls}`);

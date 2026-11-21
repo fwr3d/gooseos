@@ -3,7 +3,7 @@
 import apps from "./apps/index.js";
 import * as store from "./store.js";
 import * as sync from "./sync.js";
-import { svg, tile } from "./icons.js";
+import { svg, appSvg, tile } from "./icons.js";
 import * as capture from "./capture.js";
 import * as feed from "./feed.js";
 import * as files from "./files.js";
@@ -143,7 +143,7 @@ function hiddenRows() {
   const hid = apps.filter(a => a.hidden);
   if (!hid.length) return "";
   return `<div class="group-h">Hidden apps</div><div class="group">${hid.map(a =>
-    `<button class="row row-btn" data-hidden-open="${a.id}"><span class="tile-ic" style="${tileStyle(a)}">${svg(a.icon)}</span><div class="grow"><div class="t">${esc(a.name)}</div><div class="s">Not on your home screen</div></div></button>`).join("")}</div>`;
+    `<button class="row row-btn" data-hidden-open="${a.id}"><span class="tile-ic" style="${tileStyle(a)}">${appSvg(a.icon)}</span><div class="grow"><div class="t">${esc(a.name)}</div><div class="s">Not on your home screen</div></div></button>`).join("")}</div>`;
 }
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-hidden-open]");
@@ -156,6 +156,14 @@ const THEMES = [
   ["forest", "Forest", ["#2f7a3a", "#c27a22", "#b5523b"]],
   ["mono", "Mono", ["#2c2c2a", "#888780", "#f1efe8"]],
 ];
+const ICON_STYLES = [["solid", "Tile"], ["color", "Color"], ["ink", "Ink"]];
+function currentIcons() { try { return localStorage.getItem("icons") || "solid"; } catch (e) { return "solid"; } }
+function setIcons(k) {
+  if (k === "solid") delete document.documentElement.dataset.icons; else document.documentElement.dataset.icons = k;
+  try { localStorage.setItem("icons", k); } catch (e) { /* still applied for this visit */ }
+}
+const looksHtml = () => ICON_STYLES.map(([k, name]) => `<button type="button" data-icons-pick="${k}" aria-pressed="${k === currentIcons()}">${iconPreview(k)}${name}</button>`).join("");
+const iconPreview = k => `<span class="pv" style="${k === "solid" ? "background:var(--tint-warm-solid);color:#fff" : k === "color" ? "color:var(--tint-warm-solid)" : "color:var(--ink)"}">${appSvg("sun")}</span>`;
 function currentTheme() { try { return localStorage.getItem("theme") || "paper"; } catch (e) { return "paper"; } }
 function setTheme(k) {
   if (k === "paper") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = k;
@@ -197,11 +205,12 @@ async function drawSettings() {
   $("#sheet-body").innerHTML = `
     <div class="group-h">Sync</div><div class="group" id="st-sync-group">${syncRowHtml()}</div>
     <div class="group-h">Theme</div><div class="group"><div class="theme-pick" id="st-theme">${THEMES.map(([k, name, sw]) => `<button type="button" data-theme-pick="${k}" aria-pressed="${k === currentTheme()}"><span class="sw">${sw.map(c => `<i style="background:${c}"></i>`).join("")}</span>${name}</button>`).join("")}</div></div>
+    <div class="group-h">Icons</div><div class="group"><div class="icon-pick" id="st-icons">${looksHtml()}</div></div>
     <div id="st-home">${picker}</div>
     ${installRow}
     ${hiddenRows()}
     <div class="group-h">About</div>
-    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide.</div></div></div></div>`;
+    <div class="group"><div class="row"><img src="icons/apple-touch-icon.png" alt="" width="30" height="30" style="border-radius:8px"><div class="grow"><div class="t">GooseOS</div><div class="s">Your school home screen. Icons by Lucide and Streamline Freehand (CC BY 4.0).</div></div></div></div>`;
   wireSync();
   const inst = $("#st-install"); if (inst) inst.onclick = () => $("#install-btn").click();
   $("#st-theme").onclick = e => {
@@ -209,8 +218,14 @@ async function drawSettings() {
     setTheme(b.dataset.themePick);
     $("#st-theme").querySelectorAll("[data-theme-pick]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
   };
+  $("#st-icons").onclick = e => {
+    const b = e.target.closest("[data-icons-pick]"); if (!b) return;
+    setIcons(b.dataset.iconsPick);
+    $("#st-icons").querySelectorAll("[data-icons-pick]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  };
   // pick which widgets the home screen shows
-  wirePicker($("#st-home"), () => { toast("Home screen updated"); renderHome(); });
+  // no toast here: it popped up over the middle of the sheet, and the home screen change is already visible behind it
+  wirePicker($("#st-home"), () => renderHome());
 }
 
 let pendingEmail = "";

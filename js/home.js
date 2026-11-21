@@ -3,7 +3,7 @@
 // Your widget picks are saved as app "shell", item "home": { small: [a, b], wide }.
 import apps from "./apps/index.js";
 import * as store from "./store.js";
-import { svg, tile } from "./icons.js";
+import { svg, appSvg, tile } from "./icons.js";
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -94,7 +94,7 @@ export const savePrefs = p => store.put("shell", "home", p);
 async function iconHtml(a, { label = true } = {}) {
   let badge = "";
   try { badge = a.badge ? (await a.badge()) || "" : ""; } catch (e) { badge = ""; }
-  const face = `<span class="sq" style="${tileStyle(a)}">${svg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span>`;
+  const face = `<span class="sq" style="${tileStyle(a)}">${appSvg(a.icon)}${badge ? `<span class="badge">${esc(badge)}</span>` : ""}</span>`;
   return `<button class="app-ic" data-open="${a.id}" aria-label="${esc(a.name)}${badge ? `, ${esc(badge)} need attention` : ""}">${face}${label ? `<span class="lb">${esc(a.name)}</span>` : ""}</button>`;
 }
 
