@@ -68,11 +68,20 @@ export async function agenda() {
     .map(d => ({ key: `${APP}:${d.id}`, title: d.title, due: d.due || null, kind: isExam(d) ? "exam" : "deadline", course: d.course || "", list: lists.listOf(d, ls), done: !!d.done, open: `#${APP}/${d.id}` }));
 }
 
+/* After marking done: an exam, project, homework or quiz gets a Grades entry waiting on its score.
+   Back to not done: that entry goes again, if no score went in. */
+async function afterDone(d) {
+  try { return await (await import("../grades/grades.js")).addWaiting(d); } catch (e) { console.error(e); return null; }
+}
+async function afterUndone(id) {
+  try { await (await import("../grades/grades.js")).dropWaiting(id); } catch (e) { console.error(e); }
+}
+
 /** Mark one agenda item done ("deadlines:<id>"). */
 export async function complete(key) {
   const id = String(key).replace(new RegExp(`^${APP}:`), "");
   const d = await store.get(APP, id);
-  if (d && !d.done) await store.put(APP, id, { ...d, done: true });
+  if (d && !d.done) { await store.put(APP, id, { ...d, done: true }); await afterDone({ id, ...d }); }
 }
 /** Add a deadline from quick-capture text. Returns the saved item, or null if empty. */
 export async function addFromText(text) {
@@ -527,7 +536,11 @@ async function mount(el, ctx) {
     if (act === "toggle") {
       const { id, ...data } = d;
       await store.put(APP, id, { ...data, done: !d.done });
-      if (!d.done) { lastUndo = d; ctx0.toast(`Done: ${d.title}`, { label: "Undo", run: async () => { const { id: i2, ...dd } = lastUndo; await store.put(APP, i2, { ...dd, done: false }); document.querySelector(".toast").hidden = true; render(); } }); }
+      if (!d.done) {
+        lastUndo = d;
+        const g = await afterDone(d);
+        ctx0.toast(`Done: ${d.title}${g ? ` · waiting on a score in Grades` : ""}`, { label: "Undo", run: async () => { const { id: i2, ...dd } = lastUndo; await store.put(APP, i2, { ...dd, done: false }); await afterUndone(i2); document.querySelector(".toast").hidden = true; render(); } });
+      } else await afterUndone(id);
       render();
     } else if (act === "edit") openEdit(d);
   });

@@ -10,6 +10,9 @@
 //   app "grades", id "s-<courseId>": { cutoffs: { A, B, C, D } }   (percent; default 90/80/70/60)
 //   app "grades", id "g-…": one graded item { course (course id), cat (weight label), title,
 //                                             score (number, or null = still to come), outOf, at (ms the score was typed) }
+//   app "grades", id "g-dl-<deadline id>": added when a graded deadline is marked done
+//                                             { ...same, outOf: null until you type it, waiting: true, deadline, doneAt }
+//                                             "waiting on a score" until the score goes in
 //
 // The math: each category's average is points earned / points possible. Your
 // current grade is the weighted average of the categories that have a score.
@@ -118,6 +121,39 @@ async function drops(now = Date.now()) {
 }
 
 async function putItem(id, data) { await store.put(APP, id, data); }
+
+/* ---------- waiting on a score: graded deadlines you finished ---------- */
+const isWaiting = i => !!i.waiting && typeof i.score !== "number";
+/** exam, quiz, project or homework, from the syllabus type or the title; null for anything else. */
+function gradedKind(d) {
+  if (["exam", "quiz", "project", "homework"].includes(d.type)) return d.type;
+  const t = d.title || "";
+  if (/\b(exam|midterm|final)\b/i.test(t) && !/\bfinal\s+(paper|presentation|report|essay)\b/i.test(t) && !/\bproj(ect)?\b/i.test(t)) return "exam";
+  if (/\bquiz(zes)?\b/i.test(t)) return "quiz";
+  if (/\bproj(ect)?\b/i.test(t)) return "project";
+  if (/\b(homework|hw|problem set|pset)\b/i.test(t)) return "homework";
+  return null;
+}
+const CAT_WORDS = { exam: /exam|midterm|final|test/i, quiz: /quiz/i, project: /project/i, homework: /homework|\bhw\b|assignment|problem|pset/i };
+const codeKey = s => String(s || "").replace(/\s+/g, "").toLowerCase();
+/** A deadline was marked done. If it gets a grade, add it here with an empty score (once).
+ *  Returns { id, code } when something was added, else null. */
+export async function addWaiting(d) {
+  const kind = d && d.id && d.course ? gradedKind(d) : null; if (!kind) return null;
+  const { courses, items } = await loadAll();
+  const course = courses.find(c => codeKey(c.code) === codeKey(d.course)); if (!course) return null;
+  const id = "g-dl-" + d.id;
+  if (items.some(i => i.id === id || i.deadline === d.id || (i.course === course.id && same(i.title, d.title)))) return null;
+  const ws = weightsOf(course);
+  const cat = ws.length ? ((ws.find(w => CAT_WORDS[kind].test(w.label)) || {}).label || "") : POINTS;
+  await store.put(APP, id, { course: course.id, cat, title: d.title, score: null, outOf: null, at: null, waiting: true, deadline: d.id, doneAt: Date.now() });
+  return { id, code: course.code };
+}
+/** The deadline went back to not done: drop its entry if no score went in yet. */
+export async function dropWaiting(deadlineId) {
+  const id = "g-dl-" + deadlineId, it = await store.get(APP, id);
+  if (it && isWaiting(it)) await store.remove(APP, id);
+}
 async function saveWeights(course, weights) {
   if (course.own) { const raw = (await store.get(APP, course.id)) || { code: course.code }; await store.put(APP, course.id, { ...raw, weights }); return; }
   const raw = await store.get("courses", course.id);
@@ -174,11 +210,21 @@ function renderList({ courses, items, settings }) {
     return;
   }
   const gs = courses.map(c => grade(c, items, cutoffsOf(settings, c.id)));
+  const waiting = items.filter(i => isWaiting(i) && courses.some(c => c.id === i.course)).sort((a, b) => (a.doneAt || 0) - (b.doneAt || 0));
+  const codeOf = id => courses.find(c => c.id === id).code;
   $("#gr-body").innerHTML = `
+    ${waiting.length ? `<section class="ap-sec gr-waiting"><h3>Waiting on a score<span class="n">${waiting.length}</span></h3>
+      <div class="ap-card">${waiting.map(i => `<button class="ap-row gr-item tocome" data-wait="${esc(i.id)}">
+        <span class="grow"><span class="t">${esc(i.title || "Untitled")}</span><span class="s">${esc([codeOf(i.course), i.cat && i.cat !== POINTS ? i.cat : "", i.doneAt ? `done ${md(i.doneAt)}` : ""].filter(Boolean).join(" · "))}</span></span>
+        <span class="ap-pill warn">add score</span></button>`).join("")}</div>
+      <p class="gr-hint">Finished, not graded yet. Tap one when the score comes back.</p></section>` : ""}
     <div class="gr-list">${gs.map(g => {
       const best = g.current !== null ? bestReach(g) : null;
-      const sub = g.current === null ? (g.nToCome ? `${g.nToCome} still to come · no scores yet` : "No scores yet")
-        : [`${g.nGraded} graded`, g.nToCome ? `${g.nToCome} to come` : "", g.left > 0.05 ? (best ? needLine(best.n, best.L) : "") : "all graded"].filter(Boolean).join(" · ");
+      const nWait = g.cats.reduce((n, c) => n + c.items.filter(isWaiting).length, 0) + g.loose.filter(isWaiting).length;
+      const toCome = g.nToCome - nWait;
+      const sub = [g.current === null ? (toCome ? `${toCome} still to come · no scores yet` : "No scores yet")
+        : [`${g.nGraded} graded`, toCome ? `${toCome} to come` : "", g.left > 0.05 ? (best ? needLine(best.n, best.L) : "") : "all graded"].filter(Boolean).join(" · "),
+        nWait ? `${nWait} waiting on a score` : ""].filter(Boolean).join(" · ");
       return `<button class="ap-card gr-class" data-class="${esc(g.course.id)}">
         <span class="gr-class-top"><span class="grow"><span class="t">${esc(g.course.code)}</span>${g.course.name ? `<span class="s">${esc(g.course.name)}</span>` : ""}</span>
           ${g.current === null ? `<span class="ap-pill">—</span>` : `<span class="gr-num">${pct(g.current)}</span><span class="gr-letter ${toneOf(g.letter)}">${g.letter}</span>`}</span>
@@ -188,6 +234,12 @@ function renderList({ courses, items, settings }) {
     }).join("")}</div>
     ${addClassForm()}`;
   root.querySelectorAll("[data-class]").forEach(b => b.onclick = () => openCourse(b.dataset.class));
+  root.querySelectorAll("[data-wait]").forEach(b => b.onclick = async () => {
+    const it = items.find(i => i.id === b.dataset.wait); if (!it) return;
+    await openCourse(it.course);
+    const c = courses.find(x => x.id === it.course);
+    editItem(it, grade(c, items, cutoffsOf(settings, c.id)));
+  });
   wireAddClass();
 }
 
@@ -203,7 +255,7 @@ function wireAddClass() {
     openCourse(id);
   };
 }
-function openCourse(id) { openId = id; setRoute(); root.querySelector(".ap-scroll").scrollTop = 0; render(); }
+function openCourse(id) { openId = id; setRoute(); root.querySelector(".ap-scroll").scrollTop = 0; return render(); }
 
 function needBig(n, L, g) {
   if (n.kind === "done") return `<div class="gr-need-v">${pct(n.final)}</div><p class="gr-note">Everything's graded. That's your final, ${an(letterOf(n.final, g.cut))}.</p>`;
@@ -218,12 +270,13 @@ function renderCourse(course, { items, settings }) {
   const n = g.need[target];
   const catOpts = g.cats.map(c => `<option value="${esc(c.label)}">${esc(c.label)}</option>`).join("");
   const itemRow = i => {
-    const done = typeof i.score === "number";
+    const done = typeof i.score === "number", wait = isWaiting(i);
     const p = done && +i.outOf > 0 ? i.score / i.outOf * 100 : null;
+    const out = +i.outOf > 0 ? `<small>/${pts(i.outOf)}</small>` : "";
     return `<button class="ap-row gr-item ${done ? "" : "tocome"}" data-item="${esc(i.id)}">
-      <span class="grow"><span class="t">${esc(i.title || "Untitled")}</span><span class="s">${done ? `Graded ${md(i.at || Date.now())}` : "Still to come"}</span></span>
-      <span class="gr-score">${done ? `${pts(i.score)}<small>/${pts(i.outOf)}</small>` : `—<small>/${pts(i.outOf)}</small>`}</span>
-      ${p !== null ? `<span class="ap-pill ${toneOf(letterOf(p, g.cut))}">${pct(p, 0)}</span>` : `<span class="ap-pill">to come</span>`}
+      <span class="grow"><span class="t">${esc(i.title || "Untitled")}</span><span class="s">${done ? `Graded ${md(i.at || Date.now())}` : wait ? `Waiting on a score${i.doneAt ? ` · done ${md(i.doneAt)}` : ""}` : "Still to come"}</span></span>
+      <span class="gr-score">${done ? `${pts(i.score)}${out}` : `—${out}`}</span>
+      ${p !== null ? `<span class="ap-pill ${toneOf(letterOf(p, g.cut))}">${pct(p, 0)}</span>` : wait ? `<span class="ap-pill warn">waiting</span>` : `<span class="ap-pill">to come</span>`}
     </button>`;
   };
   $("#gr-body").innerHTML = `
@@ -305,10 +358,11 @@ function sheet(html) {
 
 function editItem(it, g) {
   const opts = g.cats.map(c => `<option value="${esc(c.label)}" ${same(c.label, it.cat) ? "selected" : ""}>${esc(c.label)}</option>`).join("");
-  const { f, close } = sheet(`<h2>Edit score</h2>
+  const wait = isWaiting(it);
+  const { f, close } = sheet(`<h2>${wait ? "Add the score" : "Edit score"}</h2>
     <label>Name<input class="field" name="title" value="${esc(it.title)}" required></label>
     <div class="two"><label>Score<input class="field" name="score" inputmode="decimal" value="${typeof it.score === "number" ? pts(it.score) : ""}" placeholder="Not graded yet"></label>
-      <label>Out of<input class="field" name="outOf" inputmode="decimal" value="${pts(it.outOf)}" required></label></div>
+      <label>Out of<input class="field" name="outOf" inputmode="decimal" value="${+it.outOf > 0 ? pts(it.outOf) : ""}" placeholder="100" required></label></div>
     ${g.weighted ? `<label>Category<select class="field" name="cat">${g.cats.some(c => same(c.label, it.cat)) ? "" : `<option value="" selected>Pick one</option>`}${opts}</select></label>` : ""}
     <div class="acts"><button type="button" class="pill-btn danger" data-act="del">Delete</button>
       <span style="display:flex;gap:8px"><button type="button" class="pill-btn secondary" data-act="cancel">Cancel</button><button class="pill-btn" type="submit">Save</button></span></div>`);
@@ -325,6 +379,7 @@ function editItem(it, g) {
     if (f.cat && !f.cat.value) return f.cat.focus();
     const changed = score !== it.score;
     const { id, ...data } = it;
+    if (score !== null) delete data.waiting;
     await putItem(id, { ...data, title: f.title.value.trim() || it.title, outOf, score, cat: f.cat ? f.cat.value : it.cat,
       at: score === null ? null : changed || !it.at ? Date.now() : it.at });
     close(); render();
