@@ -449,3 +449,36 @@ html[data-icons="ink"] .dock .app-ic:not(.dock-add) .sq .ic-hand{width:36px;heig
 .icon-pick button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
 .icon-pick .pv{width:38px;height:38px;border-radius:11px;display:grid;place-items:center}
 .icon-pick .pv .ic{width:28px;height:28px}
+
+/* doodle look for the whole page: handwritten titles, pen-line outlines with uneven corners. Off with the Normal icon set. */
+:root:not([data-iconset="normal"]){--wob-a:110px 10px 95px 9px/9px 95px 10px 110px;--wob-b:10px 95px 9px 110px/110px 9px 95px 10px;--wob-s:9px 4px 10px 4px/4px 10px 4px 9px;--wob-t:19px 13px 17px 12px/12px 17px 13px 19px;--wob-p:16px 20px 15px 19px/19px 15px 20px 16px;--pen:1.5px solid var(--line-strong)}
+:root:not([data-iconset="normal"]) :is(.ap-title,.dl-title,.tc-title,.ms-top .t,.fv-title b,.ms-head h1,.td-head h1,.rs-head h1,.cd-intro h2,.gr-intro h2,.rs-intro h2,.wl-setup h2,.dl-sheet h2,.ws-rhead h2,.ap-empty b,.dl-empty b,.sy-done b,.ap-sec>h3,.group-h,.dl-sec h3,.h-big,.h-k,.w-big,.wl-big,.gr-big,.gr-need-v,.td-sum-v,.wl-stats b){font-family:var(--f-hand);font-weight:500;letter-spacing:0}
+:root:not([data-iconset="normal"]) :is(.ap-title,.dl-title,.tc-title,.ms-top .t,.fv-title b){font-size:23px;line-height:1}
+:root:not([data-iconset="normal"]) :is(.ms-head h1,.cd-intro h2,.gr-intro h2,.rs-intro h2,.wl-setup h2,.dl-sheet h2,.ws-rhead h2){font-size:29px;line-height:1.05}
+:root:not([data-iconset="normal"]) :is(.td-head h1,.rs-head h1){font-size:40px;line-height:1}
+:root:not([data-iconset="normal"]) :is(.ap-empty b,.dl-empty b,.sy-done b){font-size:25px}
+:root:not([data-iconset="normal"]) :is(.ap-sec>h3,.group-h,.dl-sec h3){font-size:19px}
+:root:not([data-iconset="normal"]) :is(.h-big,.w-big,.td-sum-v,.wl-stats b){font-size:31px}
+:root:not([data-iconset="normal"]) .h-k{font-size:17px}
+:root:not([data-iconset="normal"]) :is(.wl-big,.gr-big){font-size:56px}
+:root:not([data-iconset="normal"]) .gr-need-v{font-size:48px}
+:root:not([data-iconset="normal"]) :is(.ap-card,.ap-input,.group,.widget.h-small,.widget.h-wide,.dl-add,.dl-connect,.dl-list,.ms-page,.ms-list,.ws-list,.ws-prompt,.ms-preview,.sc-week-wrap,.sc-meet,.sy-drop,.sy-paste,.rm-snz,.wl-chip,.cd-win,.cd-tcase,.cd-mi,.gr-class,.tc-step,.wb-board,.pf-tgroup,.pf-colors,.wb-tools,.wb-styles,.wb-zoom,.ws-dropzone,.install){border:var(--pen);border-radius:var(--wob-a)}
+:root:not([data-iconset="normal"]) :is(.ap-card,.group,.widget,.dl-list,.ms-page,.tc-step,.wl-chip,.gr-class):nth-child(even){border-radius:var(--wob-b)}
+:root:not([data-iconset="normal"]) :is(.ws-dropzone,.sy-drop){border-style:dashed}
+:root:not([data-iconset="normal"]) :is(.ms-menu,.wb-menu){border:var(--pen);border-radius:var(--wob-s)}
+:root:not([data-iconset="normal"]) :is(.pill-btn,.field,.ms-ob,.ms-tool,.ms-banner,.dl-home,.wb-home,.wb-tool,.wb-mi,.wb-seg button,.wb-sz,.cd-keys button,.cd-input,.cd-err,.cd-case,.cd-f,.rm-snz button,.pf-tgroup button,.pf-colors button,.sy-item .field,.dl-connect input,.ms-menu button,.rs-box,.sc-block){border-radius:var(--wob-s)}
+:root:not([data-iconset="normal"]) .pill-btn:not(.secondary):not(.danger){box-shadow:2px 2px 0 var(--ink)}
+:root:not([data-iconset="normal"]) .pill-btn.danger{box-shadow:2px 2px 0 var(--ink)}
+:root:not([data-iconset="normal"]) .pill-btn:not(.secondary):active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+:root:not([data-iconset="normal"]) .pill-btn.secondary{box-shadow:inset 0 0 0 1.5px var(--line-strong)}
+:root:not([data-iconset="normal"]) :is(.chip,.ap-tabs,.ap-tabs button,.dl-filters button,.td-lists button,.wl-cats button,.ms-tpls button,.cd-tab,.ms-tag,.tc-add,.ms-att,.td-att,.sy-flag,.dl-left,.ms-drophint,.cd-opt span){border-radius:var(--wob-p)}
+:root:not([data-iconset="normal"]) :is(.tile-ic,.cd-ic,.gr-ic,.rs-ic,.wl-setup-ic,.pf-drop-ic,.tr-drop-ic,.pf-ic,.ms-fic,.app-ic .sq){border-radius:var(--wob-t)}
+:root:not([data-iconset="normal"]) :is(.row + .row,.ap-row + .ap-row,.dl-row + .dl-row,.ms-step + .ms-step,.ms-list > .ms-morerow,.ms-list > .ms-addstep,.sy-item + .sy-item,.ws-doc + .ws-doc,.ws-doc + .ws-row,.ws-row + .ws-doc,.ws-row + .ws-row,.ms-card + .ms-card){border-top-style:dashed}
+:root:not([data-iconset="normal"]) :is(.sheet-h h2,.date){font-family:var(--f-hand);font-weight:500;letter-spacing:0}
+:root:not([data-iconset="normal"]) .sheet-h h2{font-size:29px;line-height:1}
+:root:not([data-iconset="normal"]) #home .date,.clock .date{font-size:31px;line-height:1}
+:root:not([data-iconset="normal"]) .sheet{border:var(--pen)}
+:root:not([data-iconset="normal"]) .dock{border:var(--pen);border-radius:var(--wob-a)}
+:root:not([data-iconset="normal"]) :is(.theme-pick button,.icon-pick button){border:var(--pen);border-radius:var(--wob-s)}
+:root:not([data-iconset="normal"]) :is(.theme-pick button,.icon-pick button)[aria-pressed="true"]{border-color:var(--ink);box-shadow:2px 2px 0 var(--ink)}
+:root:not([data-iconset="normal"]) :is(.theme-pick .sw i,.icon-pick .pv){border-radius:var(--wob-s)}
