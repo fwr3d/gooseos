@@ -33,6 +33,10 @@ export async function openAttachment(id) {
 const APP = "milestones";
 const uid = () => Math.random().toString(36).slice(2, 10);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/** "Mon Dec 1" */
+const dayLabel = t => new Date(t).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }).replace(",", "");
+/** "45 min", "1h 30m" */
+const lenLabel = m => m < 60 ? `${m} min` : fmtDur(m);
 const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`;
 
 /* ---------- data ---------- */
@@ -112,7 +116,7 @@ function card(m) {
 }
 
 async function renderList() {
-  current = null; sel = null; openDoc = null; ws = null;
+  current = null; sel = null; openDoc = null; ws = null; expanded = false; addOpen = false;
   $("#ms-main").classList.remove("wide");
   $("#ms-title").textContent = "Milestones";
   $("#ms-back").hidden = true; root.querySelector("[data-home]").hidden = false;
@@ -129,7 +133,7 @@ async function renderDetail(id) {
   const raw = await store.get(APP, id);
   if (!raw) { ctx0.toast("That milestone isn't here anymore."); return renderList(); }
   const m = await followDeadline({ id, ...raw });
-  if (current !== id) { sel = null; openDoc = null; }
+  if (current !== id) { sel = null; openDoc = null; expanded = false; addOpen = false; }
   current = id;
   $("#ms-title").textContent = "";
   $("#ms-back").hidden = false; root.querySelector("[data-home]").hidden = true;
@@ -142,17 +146,45 @@ async function renderDetail(id) {
   const onStep = sid => att.filter(f => f.owner === ownerOf(id, sid));
   const docsOn = sid => docs.filter(d => d.owner === ownerOf(id, sid));
   $("#ms-main").classList.add("wide");
+  const sorted = [...m.steps].sort((a, b) => a.date - b.date);
+  // long plans: show the last two finished steps and the next few, the rest behind "N more steps"
+  let shown = sorted;
+  if (!expanded && sorted.length > 6) {
+    const firstOpen = Math.max(0, sorted.findIndex(x => !x.done));
+    const from = Math.max(0, Math.min(firstOpen - 2, sorted.length - 5));
+    const pick = new Set(sorted.slice(from, from + 5).map(x => x.id));
+    if (sel) pick.add(sel);
+    shown = sorted.filter(x => pick.has(x.id));
+  }
+  const hiddenN = sorted.length - shown.length;
+  const tool = (act, icon, label) => `<button class="ms-tool" data-act="${act}" aria-label="${label}" title="${label}">${svg(icon)}</button>`;
+  const stepRow = s => {
+    const late = !s.done && s.date < now, isSel = s.id === sel;
+    const ask = s.kind === "quiz" && s.done && !s.rating;
+    const rated = s.rating ? `<span class="ms-tag ${s.rating === "good" ? "green" : "warm"}">${s.rating === "good" ? "got it" : "shaky"}</span>` : "";
+    const hasAtt = onStep(s.id).length + docsOn(s.id).length > 0;
+    const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}</span>`;
+    return `<div class="ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${isSel ? "sel" : ""}" data-sid="${s.id}">
+      <button class="ms-chk" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg(s.done ? "circleCheck" : "circle")}</button>
+      <div class="grow"><span class="ms-ttl">${esc(s.title)}</span>${when}
+        ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
+      ${rated}${hasAtt ? `<span class="ms-hasatt" title="Has notes or files">${svg("paperclip")}</span>` : ""}
+      <span class="ms-tools">${tool("rename", "pencilLine", "Rename")}${tool("date", "calendar", "Change date")}${tool("est", "clock", "How long it takes")}${tool("rmstep", "trash2", "Remove step")}</span>
+    </div>`;
+  };
   $("#ms-main").innerHTML = `
+    <div class="ms-page">
     <div class="ms-head">
       <div class="ms-htop">
         <div class="ms-htitle">
-          <div class="ms-meta">${m.course ? `<i class="h-cdot" style="background:${courseColor(m.course)}"></i>${esc(m.course)} · ` : ""}${esc(tplLabel(m))} · due ${esc(dueLabel(m.due))}${linked ? ` · <a class="link-btn" style="padding:0;font-size:inherit;font-weight:400" href="#deadlines/${esc(m.deadlineKey.replace(/^deadlines:/, ""))}">Linked deadline</a>` : ""}</div>
+          <div class="ms-meta">${esc([m.course, tplLabel(m), `due ${dayLabel(m.due)}`].filter(Boolean).join(" · "))}${linked ? ` · <a class="ms-dl" href="#deadlines/${esc(m.deadlineKey.replace(/^deadlines:/, ""))}">deadline</a>` : ""}</div>
           <h1>${esc(m.title)}</h1>
         </div>
         <div class="ms-actions">
           <button class="ms-ob" data-act="save-tpl" title="Reuse these steps for the next one">${svg("copy")}Save as template</button>
           <span class="ms-more"><button class="ms-ob icon" data-act="more" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${svg("ellipsis")}</button>
             <span class="ms-menu" role="menu" hidden>
+              <button role="menuitem" data-act="add-open">${svg("plus")}Add a step</button>
               <button role="menuitem" data-act="replan" title="Spread the unfinished steps from today to the due date">${svg("refreshCw")}Re-plan from today</button>
               <button role="menuitem" data-act="edit">${svg("pencilLine")}Edit plan</button>
               <button role="menuitem" class="danger" data-act="del">${svg("trash2")}Delete</button>
@@ -160,38 +192,29 @@ async function renderDetail(id) {
         </div>
         <span id="ms-del-wrap"></span>
       </div>
-      <div class="ms-meter"><div class="ap-bar-meter"><i style="width:${p.pct}%;background:${p.d === p.n ? "var(--tint-green-fg)" : "var(--tint-blue-fg)"}"></i></div><span>${p.d} of ${p.n} steps</span></div>
+      <div class="ms-meter"><div class="ms-bar"><i style="width:${p.pct}%"></i></div><span>${p.d} of ${p.n} steps</span></div>
     </div>
-    ${m.deadlineDone && p.d < p.n ? `<div class="ap-card ap-row"><span class="grow"><span class="t">You checked off the deadline</span><span class="s">The steps left won't remind you anymore.</span></span><button class="pill-btn secondary" data-act="finish">Mark all done</button></div>` : ""}
+    ${m.deadlineDone && p.d < p.n ? `<div class="ms-banner"><span class="grow"><b>You checked off the deadline</b><span>The steps left won't remind you anymore.</span></span><button class="ms-ob sm" data-act="finish">Mark all done</button></div>` : ""}
     <div class="ms-cols"><div class="ms-left">
-    <div class="ms-lab">Steps</div>
-    <div class="ap-card" id="ms-steps">
-      ${[...m.steps].sort((a, b) => a.date - b.date).map(s => {
-        const late = !s.done && s.date < now;
-        const ask = s.kind === "quiz" && s.done && !s.rating;
-        const rated = s.rating ? `<span class="ms-tag ${s.rating === "good" ? "green" : "warm"}">${s.rating === "good" ? "got it" : "shaky"}</span>` : "";
-        const nAtt = onStep(s.id).length + docsOn(s.id).length;
-        return `<div class="ap-row ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${s.id === sel ? "sel" : ""}" data-sid="${s.id}">
-          <button class="ap-check" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg("check")}</button>
-          <div class="grow"><button class="t link-btn ms-rename" data-act="rename" title="Rename step">${esc(s.title)}</button><button class="s link-btn" data-act="date" style="padding:0;text-align:left;font-weight:400;color:${late ? "var(--tint-red-fg)" : "var(--muted)"};font-size:12px">${esc(dueLabel(s.date))}${late ? " · late" : ""}</button><span class="ms-dot">·</span><button class="est link-btn" data-act="est" title="How long it takes">${fmtDur(s.estMin || 45)}</button>
-            ${ask ? `<span class="ms-rate"><span>How did ${esc(s.topic || "it")} go?</span><button class="pill-btn secondary" data-act="rate-good">Got it</button><button class="pill-btn secondary" data-act="rate-shaky">Shaky</button></span>` : ""}</div>
-          ${rated}
-          ${nAtt ? `<span class="ms-hasatt" title="${nAtt} in its workspace">${svg("paperclip")}${nAtt > 1 ? nAtt : ""}</span>` : ""}
-          <button class="icon-btn ms-del" data-act="rmstep" aria-label="Remove step">${svg("x")}</button>
-        </div>`;
-      }).join("")}
-      <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="ms-ob sm" type="submit">Add</button></form>
-    </div>
-    <p class="ap-hint">Tap a step to open its workspace, or its date to move it. Re-plan spreads the unfinished steps from today to the due date and never past it.</p>
-    </div><aside class="ms-ws" id="ms-ws" aria-label="Workspace"></aside></div>`;
+      <div class="ms-lab">Steps</div>
+      <div class="ms-list ${addOpen ? "adding" : ""}" id="ms-steps">
+        ${shown.map(stepRow).join("")}
+        ${hiddenN ? `<button class="ms-morerow" data-act="more-steps">${svg("ellipsis")}${hiddenN} more step${hiddenN === 1 ? "" : "s"}</button>` : expanded && sorted.length > 6 ? `<button class="ms-morerow" data-act="more-steps">${svg("chevronDown", "up")}Show fewer</button>` : ""}
+        <form class="ms-addstep" id="ms-addstep" autocomplete="off">${svg("plus")}<input placeholder="Add a step…" aria-label="Add a step"><button class="ms-ob sm" type="submit">Add</button></form>
+      </div>
+    </div><aside class="ms-ws" id="ms-ws" aria-label="Workspace"></aside></div>
+    </div>`;
+  if (addOpen) $("#ms-addstep input")?.focus();
   drawWorkspace();
 }
 
 /* ---------- workspace: notes and files for the whole project or the selected step ---------- */
 let sel = null;       // selected step id, or null for the whole project
-let openDoc = null;   // doc shown expanded
+let openDoc = null;   // unused now that docs open in a reader; kept so older calls stay harmless
+let expanded = false; // long step list shown in full
+let addOpen = false;  // the "Add a step" row is showing
 let ws = null;        // what the last renderDetail loaded: { id, m, att, docs }
-const DOC_ICON = { note: "filePen", guide: "notebook", questions: "circleHelp" };
+const DOC_ICON = { note: "fileText", guide: "notebook", questions: "circleHelp" };
 const DOC_KIND = { note: { tint: "gray", tag: "note" }, guide: { tint: "blue", tag: "guide" }, questions: { tint: "violet", tag: "questions" } };
 /** "today", "yesterday", "Mon", or "Nov 3". */
 function ago(t) {
@@ -202,42 +225,50 @@ function ago(t) {
   return new Date(t).toLocaleDateString(undefined, days < 7 ? { weekday: "short" } : { month: "short", day: "numeric" });
 }
 
+/** Plain text from markdown, for the short preview. */
+const plain = md => String(md || "").replace(/```[\s\S]*?```/g, " ").replace(/^\s*(#{1,6}|[-*+]|\d+[.)])\s+/gm, "").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim();
+const countQs = md => (String(md || "").match(/^\s*\d+[.)]\s+/gm) || []).length;
 function drawWorkspace() {
   const box = $("#ms-ws"); if (!box || !ws) return;
   const { id, m, att, docs } = ws;
   const step = sel ? m.steps.find(s => s.id === sel) : null;
-  // a doc or file whose step was removed counts as the whole project's
+  const whole = m.template === "exam" ? "exam" : "project";
+  // a doc or file whose step was removed counts as the whole plan's
   const stepOf = owner => { const s = String(owner).slice(ownerOf(id).length + 1); return s && m.steps.some(x => x.id === s) ? s : null; };
   const here = x => stepOf(x.owner) === (step ? step.id : null);
   const myDocs = docs.filter(here), myFiles = att.filter(here);
   const also = step ? [...docs.filter(d => !stepOf(d.owner)).map(d => d.title), ...att.filter(f => !stepOf(f.owner)).map(f => f.name)] : [];
   const steps = [...m.steps].sort((a, b) => a.date - b.date);
   const docRow = d => {
-    const open = d.id === openDoc, kind = DOC_KIND[d.kind] || DOC_KIND.note;
-    return `<div class="ws-doc ${open ? "open" : ""}" data-did="${esc(d.id)}">
-      <button class="ws-row ws-drow" data-act="ws-open" aria-expanded="${open}"><span class="ws-ic" style="color:var(--tint-${kind.tint}-fg)">${svg(DOC_ICON[d.kind] || "filePen")}</span>
-        <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">${esc(KINDS[d.kind] || "Note")} · edited ${esc(ago(d.updated || d.created))}</span></span>
-        <span class="ms-tag ${kind.tint}">${kind.tag}</span></button>
-      ${open ? `<div class="ws-prev"><div class="ws-md">${renderMd(d.body) || `<p class="ws-muted">Nothing written yet.</p>`}</div>
-        <div class="ws-pacts"><button class="link-btn" data-act="ws-edit">Edit</button><button class="link-btn" data-act="ws-copydoc">Copy text</button></div></div>` : ""}
+    const guide = d.kind === "guide", qs = d.kind === "questions" ? countQs(d.body) : 0;
+    const meta = [guide ? "Study guide" : "Note", qs ? `${qs} question${qs === 1 ? "" : "s"}` : `edited ${ago(d.updated || d.created)}`].join(" · ");
+    const excerpt = plain(d.body);
+    return `<div class="ws-doc" data-did="${esc(d.id)}">
+      <button class="ws-row" data-act="ws-open"><span class="ws-ic ${guide ? "acc" : ""}">${svg(DOC_ICON[d.kind] || "fileText")}</span>
+        <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">${esc(meta)}</span></span>
+        ${guide ? `<span class="ms-tag blue">guide</span>` : ""}</button>
+      ${guide && excerpt ? `<div class="ws-prev"><p>${esc(excerpt.length > 170 ? excerpt.slice(0, 170).replace(/\s+\S*$/, "") + "…" : excerpt)}</p><button class="ws-link" data-act="ws-open">Open full guide</button></div>` : ""}
     </div>`;
   };
   const fileRow = f => `<div class="ws-row ms-frow" data-fid="${esc(f.id)}">
       <span class="ws-ic">${svg(files.isPdf(f) ? "fileText" : files.isImage(f) ? "image" : "file")}</span>
       <button class="grow ms-fopen" data-act="file" data-fid="${esc(f.id)}"><span class="t">${esc(f.name)}</span><span class="s">${esc([files.sizeText(f.size), f.uploaded ? "" : "uploading…"].filter(Boolean).join(" · "))}</span></button>
-      <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
-        <option value="">Whole project</option>
-        ${steps.map(s => `<option value="${esc(s.id)}" ${f.owner === ownerOf(id, s.id) ? "selected" : ""}>Step: ${esc(s.title)}</option>`).join("")}
-      </select>
-      <button class="icon-btn ms-frm" data-act="fdel" aria-label="Remove ${esc(f.name)}">${svg("x")}</button>
+      <span class="ms-tools ws-ftools">
+        <select class="field ms-fstep" data-act="fstep" aria-label="Attach ${esc(f.name)} to">
+          <option value="">Whole ${whole}</option>
+          ${steps.map(s => `<option value="${esc(s.id)}" ${f.owner === ownerOf(id, s.id) ? "selected" : ""}>Step: ${esc(s.title)}</option>`).join("")}
+        </select>
+        <button class="ms-tool" data-act="fdel" aria-label="Remove ${esc(f.name)}" title="Remove">${svg("trash2")}</button>
+      </span>
+      <button class="ms-tool ws-fmore" data-act="fmore" aria-label="Options for ${esc(f.name)}">${svg("ellipsis")}</button>
     </div>`;
   const days = Math.max(0, Math.ceil((m.due - Date.now()) / 864e5));
-  const promptSub = [m.course, step ? step.topic || step.title : m.title, step && step.rating === "shaky" ? "shaky" : "",
+  const promptSub = [m.course, step ? step.topic || step.title : m.title, step && step.rating === "shaky" ? "rated shaky" : "",
     `${m.template === "exam" ? "exam" : "due"} ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`].filter(Boolean).join(" · ");
   box.innerHTML = `
     <div class="ws-head">
-      <span class="ms-lab">Workspace · ${esc(step ? step.title : "Whole project")}</span>
-      <span class="ws-btns">${step ? `<button class="link-btn ws-allbtn" data-act="ws-all">Whole project</button>` : ""}
+      <span class="ms-lab">Workspace · ${esc(step ? step.title : `Whole ${whole}`)}</span>
+      <span class="ws-btns">
         <button class="ms-ob sm" data-act="ws-note">${svg("plus")}Note</button>
         <label class="ms-ob sm ws-file" tabindex="0">${svg("paperclip")}File<input type="file" id="ms-fpick" multiple hidden></label></span>
     </div>
@@ -250,7 +281,26 @@ function drawWorkspace() {
       ${myDocs.map(docRow).join("")}${myFiles.map(fileRow).join("")}
       ${myDocs.length || myFiles.length ? "" : `<div class="ws-empty">${step ? "Nothing on this step yet." : "Nothing here yet."} Add a note, or attach the spec, rubric or your drafts.${step ? "" : " A rubric goes on the submit step by itself."}</div>`}
     </div>
-    ${also.length ? `<p class="ws-also">Also on the whole project: <button class="link-btn" data-act="ws-all">${esc(also.join(", "))}</button></p>` : ""}`;
+    ${also.length ? `<button class="ws-also" data-act="ws-all">Also on the whole ${whole}: ${esc(also.join(", "))}</button>` : ""}`;
+}
+/** Read a note or guide in full; Edit and Copy from here. */
+function openReader(doc, { onEdit }) {
+  const back = document.createElement("div"); back.className = "ap-back";
+  back.innerHTML = `<div class="ap-sheet ms-sheet ws-reader" role="dialog" aria-modal="true" aria-label="${esc(doc.title)}">
+    <div class="ws-rhead"><div><div class="ms-meta">${esc(KINDS[doc.kind] || "Note")} · edited ${esc(ago(doc.updated || doc.created))}</div><h2>${esc(doc.title)}</h2></div>
+      <button class="icon-btn" data-r="close" aria-label="Close">${svg("x")}</button></div>
+    <div class="ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</div>
+    <div class="acts"><span></span><span style="display:flex;gap:8px"><button class="ms-ob" data-r="copy">${svg("copy")}Copy text</button><button class="ms-ob" data-r="edit">${svg("pencilLine")}Edit</button></span></div>
+  </div>`;
+  root.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", async e => {
+    if (e.target === back) return close();
+    const r = e.target.closest("[data-r]")?.dataset.r;
+    if (r === "close") close();
+    else if (r === "copy") ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead.");
+    else if (r === "edit") { close(); onEdit(); }
+  });
 }
 /** For the doc editor: builds the prompt for a guide or practice questions on this step. */
 const promptFor = sid => kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind);
@@ -460,7 +510,13 @@ async function mount(el, ctx) {
     }
     if (act === "ws-all") { openDoc = null; selectStep(null); return; }
     if (act === "pick-doc") { openDoc = did; selectStep(sid); return; }
-    if (act === "ws-open") { openDoc = openDoc === did ? null : did; drawWorkspace(); return; }
+    if (act === "ws-open" && doc) {
+      openReader(doc, { onEdit: () => openDocEditor(root, doc, { toast: ctx0.toast, prompt: promptFor(String(doc.owner).split(":")[2] || null), onSave: () => renderDetail(id), onDelete: () => renderDetail(id) }) });
+      return;
+    }
+    if (act === "more-steps") { expanded = !expanded; renderDetail(id); return; }
+    if (act === "add-open") { addOpen = true; renderDetail(id); return; }
+    if (act === "fmore") { e.target.closest(".ms-frow").classList.toggle("tools-on"); return; }
     if (act === "ws-note") {
       openDocEditor(root, { owner: ownerOf(id, sel), kind: "note" }, { toast: ctx0.toast, prompt: promptFor(sel), onSave: nid => { openDoc = nid; renderDetail(id); } });
       return;
@@ -498,7 +554,7 @@ async function mount(el, ctx) {
       if (sel === sid) sel = null;
       renderDetail(id);
     } else if (act === "date") {
-      const btn = e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
+      const row = e.target.closest(".ms-step"), btn = row.querySelector(".ms-when") || e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
       const inp = document.createElement("input"); inp.type = "datetime-local"; inp.value = toLocalInput(s.date);
       inp.min = toLocalInput(Math.min(Date.now(), s.date)); inp.max = toLocalInput(raw.due);
       btn.replaceWith(inp); inp.focus();
@@ -511,7 +567,7 @@ async function mount(el, ctx) {
       };
       inp.addEventListener("change", done); inp.addEventListener("blur", done);
     } else if (act === "rename") {
-      const btn = e.target.closest("[data-act]"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
+      const btn = e.target.closest(".ms-step").querySelector(".ms-ttl"), raw = await store.get(APP, id), s = raw.steps.find(x => x.id === sid);
       const inp = document.createElement("input"); inp.className = "field ms-rename-in"; inp.value = s.title; inp.setAttribute("aria-label", "Step name");
       btn.replaceWith(inp); inp.focus(); inp.select();
       let saved = false;
@@ -592,8 +648,8 @@ async function mount(el, ctx) {
       when = Math.min(date, m.due);
       return { ...m, steps: [...m.steps, { id: "s" + uid(), title, date: when, estMin: 45, done: false }] };
     });
-    renderDetail(id);
-    if (when) ctx0.toast(`Added for ${dueLabel(when)}. Tap its date to move it.`);
+    addOpen = false; renderDetail(id);
+    if (when) ctx0.toast(`Added for ${dueLabel(when)}. Use its calendar icon to move it.`);
   });
   store.onChange(ch => { if ((ch.app === APP || (ch.app === "docs" && current)) && ctx0.isActive() && ch.source === "remote") (current ? renderDetail(current) : renderList()); });
 }

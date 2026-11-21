@@ -221,3 +221,98 @@ button.ms-card:hover{background:var(--accent-soft)}
 .ws-copy{flex:none;background:var(--panel)}
 .ws-ed-prompt{margin:0}
 .ws-ed-prompt .link-btn{padding:0;font-size:inherit;font-weight:500;color:var(--tint-blue-fg)}
+
+/* ===== detail page, drawn to match the reference: one card, steps left, workspace right ===== */
+.ms-page{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+@media (max-width:560px){.ms-page{padding:14px}}
+.ms-head{gap:12px}
+.ms-head h1{font-size:22px}
+.ms-meta{font-size:12px;color:var(--muted)}
+.ms-dl{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+.ms-meter{gap:10px}
+.ms-bar{flex:1;height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden}
+.ms-bar i{display:block;height:100%;background:var(--tint-blue-solid)}
+.ms-meter span{font-size:12px;color:var(--muted)}
+.ms-banner{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2)}
+.ms-banner .grow{display:flex;flex-direction:column;font-size:12px;color:var(--muted)}
+.ms-banner b{font-size:13px;font-weight:500;color:var(--ink)}
+@media (min-width:900px){.ms-cols{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:14px}}
+.ms-lab{margin:0 0 0 1px}
+.ms-left{gap:6px}
+
+/* steps */
+.ms-list{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.ms-step{display:flex;align-items:center;gap:8px;padding:9px 10px;min-height:0;font-size:13px;cursor:pointer;position:relative}
+.ms-step + .ms-step,.ms-list > .ms-morerow,.ms-list > .ms-addstep{border-top:1px solid var(--line)}
+.ms-step .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
+.ms-ttl{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ms-when{font-size:12px;color:var(--muted)}
+.ms-when.late{color:var(--tint-red-fg)}
+.ms-step .ms-rate{margin-top:4px}
+/* 16px icon you see, 32px area you tap */
+.ms-chk{flex:none;width:32px;height:32px;margin:-8px -4px -8px -8px;display:grid;place-items:center;border:0;background:transparent;color:var(--faint);padding:0}
+.ms-chk .ic{width:16px;height:16px;stroke-width:2}
+.ms-chk:hover{color:var(--tint-green-solid)}
+.ms-step.done{color:var(--faint)}
+.ms-step.done .ms-ttl{text-decoration:line-through}
+.ms-step.sel{background:var(--tint-blue-bg)}
+.ms-step.sel .ms-ttl{color:var(--tint-blue-fg);font-weight:500}
+.ms-step.sel .ms-chk{color:var(--tint-blue-fg)}
+.ms-hasatt{flex:none;display:grid;place-items:center;color:var(--faint)}
+.ms-hasatt .ic{width:14px;height:14px}
+.ms-step.sel .ms-hasatt{color:var(--tint-blue-fg)}
+.ms-step .ms-tag{font-size:11px}
+/* edit icons: hidden at rest, shown on hover or on the selected step */
+.ms-tools{display:none;align-items:center;gap:2px;flex:none}
+.ms-tool{width:26px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:var(--muted);padding:0}
+.ms-tool:hover{background:var(--surface-2);color:var(--ink)}
+.ms-tool .ic{width:14px;height:14px}
+.ms-step.sel .ms-tools{display:flex}
+.ms-step.sel .ms-tool:hover{background:color-mix(in srgb,var(--tint-blue-fg) 14%,transparent)}
+@media (hover:hover){.ms-step:hover .ms-tools{display:flex}}
+.ms-step .ms-rename-in{height:28px;font-size:13px;padding:0 8px}
+.ms-step input[type="datetime-local"]{font-size:12px;padding:2px 6px}
+.ms-morerow{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:0;background:transparent;font-size:13px;color:var(--muted);text-align:left}
+.ms-morerow:hover{background:var(--surface-2)}
+.ms-morerow .ic{width:16px;height:16px}
+.ms-morerow .ic.up{transform:rotate(180deg)}
+/* add-a-step row: opened from the menu, or on hover with a mouse */
+.ms-list .ms-addstep{display:none}
+.ms-list.adding .ms-addstep{display:flex}
+@media (hover:hover){.ms-list:hover .ms-addstep,.ms-list:focus-within .ms-addstep{display:flex}}
+
+/* workspace */
+.ws-head .ms-lab{margin:0}
+.ws-prompt{align-items:center;flex-wrap:nowrap}
+.ws-prompt .grow span{white-space:normal}
+.ws-prompt .ws-copy{align-self:center}
+@media (max-width:420px){.ws-prompt{flex-wrap:wrap}.ws-prompt .ws-copy{margin-left:30px}}
+.ws-list{border-radius:8px}
+.ws-doc + .ws-doc,.ws-doc + .ws-row,.ws-row + .ws-doc,.ws-row + .ws-row{border-top:1px solid var(--line)}
+.ws-row{padding:10px 12px;gap:10px}
+.ws-row .t{font-weight:500}
+.ws-ic.acc{color:var(--tint-blue-fg)}
+.ws-doc > .ws-row:hover{background:var(--surface-2)}
+.ws-prev{padding:0 12px 12px 42px;gap:6px;border:0}
+.ws-prev p{margin:0;font-size:13px;line-height:1.6;color:var(--muted)}
+.ws-link{align-self:flex-start;border:0;background:transparent;padding:0;font-size:12px;color:var(--tint-blue-fg)}
+.ws-link:hover{text-decoration:underline}
+.ms-frow .t{font-weight:500}
+.ws-ftools{gap:6px}
+.ws-ftools .ms-fstep{display:block}
+.ws-fmore{display:none}
+@media (hover:hover){.ms-frow:hover .ws-ftools{display:flex}}
+@media (hover:none){.ws-fmore{display:grid}.ms-frow.tools-on .ws-ftools{display:flex}.ms-frow.tools-on{flex-wrap:wrap}}
+.ws-also{display:block;width:100%;border:0;background:transparent;padding:0 1px;text-align:left;font-size:12px;color:var(--faint);cursor:pointer}
+.ws-also:hover{color:var(--muted)}
+/* full note reader */
+.ws-reader{width:min(620px,100%)}
+.ws-rhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.ws-rhead h2{font-size:19px;font-weight:500;margin-top:2px}
+.ws-reader .ws-md{max-height:none;font-size:14px;color:var(--ink)}
+.ms-len{display:none}
+.ms-step.sel .ms-len{display:inline}
+/* with a mouse the edit icons only show while hovering, so the selected row stays clean */
+@media (hover:hover){.ms-step.sel .ms-tools{display:none}.ms-step:hover .ms-tools{display:flex}.ms-step:hover .ms-tag,.ms-step:hover .ms-hasatt{display:none}}
+.ms-bar i{background:#378add}
+@media (prefers-color-scheme: dark){.ms-bar i{background:#85b7eb}}

@@ -31,13 +31,12 @@
   --ink:#f1efe8; --muted:#b4b2a9; --faint:#888780; --line:rgba(255,255,255,.15); --line-strong:rgba(255,255,255,.3);
   --page:#1f1e1d; --panel:#262624; --surface-2:#2c2c2a; --board:#1c1b1a; --board-dot:rgba(241,239,232,.12);
   --lift:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
-  --tint-warm-fg:#f5c27a; --tint-red-fg:#f4a5a5; --tint-blue-fg:#9cc7f2;
-  --tint-green-fg:#b4d68a; --tint-violet-fg:#c3bdf6; --tint-gray-fg:#b4b2a9;
-  --tint-warm-bg:color-mix(in srgb,#f0a63a 16%,#262624);
-  --tint-red-bg:color-mix(in srgb,#e24b4a 18%,#262624);
-  --tint-blue-bg:color-mix(in srgb,#378add 20%,#262624); --tint-blue-line:color-mix(in srgb,#378add 45%,#262624);
-  --tint-green-bg:color-mix(in srgb,#7ab648 16%,#262624);
-  --tint-violet-bg:color-mix(in srgb,#8a7ff0 18%,#262624);
+  /* soft tints for tags, the selected step and the prompt bar (tiles use the -solid colors) */
+  --tint-warm-bg:#633806; --tint-warm-fg:#fac775;
+  --tint-red-bg:#791f1f; --tint-red-fg:#f7c1c1;
+  --tint-blue-bg:#0c447c; --tint-blue-fg:#b5d4f4; --tint-blue-line:#185fa5;
+  --tint-green-bg:#27500a; --tint-green-fg:#c0dd97;
+  --tint-violet-bg:#3c3489; --tint-violet-fg:#cecbf6; --tint-gray-fg:#b4b2a9;
   --tint-gray-bg:#2f2f2c;
   --tint-warm-solid:#c9770c; --tint-red-solid:#c84140; --tint-blue-solid:#2f77c2;
   --tint-green-solid:#47861d; --tint-violet-solid:#6c64c8; --tint-gray-solid:#5f5e5a;
