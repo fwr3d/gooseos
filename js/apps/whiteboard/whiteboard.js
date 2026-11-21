@@ -1,15 +1,16 @@
 // Whiteboard app: pen, highlighter, eraser, shapes, text, multiple boards.
 // Boards are saved through the shared store as items of app "whiteboard":
 //   { name, bg, strokes, created }
-// Each stroke is { t, c, w, p: [x, y, ...], s? } in board coordinates.
+// Each stroke is { t, c, w, p: [x, y, ...], s?, e?, d? } in board coordinates.
+//   e: arrowheads on a line or arrow (0 none, 1 end, 2 start, 3 both); d: 1 dashed, 2 dotted.
 // Pan/zoom position is kept per device only (localStorage), so it doesn't sync.
 import { svg } from "../../icons.js";
 
 const APP = "whiteboard";
 
-const TOOLS = [["hand", "Move (Space)", "hand"], ["pen", "Pen (P)", "pencil"], ["hl", "Highlighter (H)", "highlighter"], ["eraser", "Eraser (E)", "eraser"], ["sep"],
+const TOOLS = [["hand", "Move (Space)", "hand"], ["select", "Select and edit (S)", "mousePointer"], ["pen", "Pen (P)", "pencil"], ["hl", "Highlighter (H)", "highlighter"], ["eraser", "Eraser (E)", "eraser"], ["sep"],
   ["line", "Line (L)", "slash"], ["arrow", "Arrow (A)", "moveUpRight"], ["rect", "Rectangle (R)", "square"], ["ell", "Circle (O)", "circle"], ["text", "Text (T)", "type"]];
-const KEYMAP = { v: "hand", p: "pen", h: "hl", e: "eraser", l: "line", a: "arrow", r: "rect", o: "ell", t: "text" };
+const KEYMAP = { v: "hand", s: "select", p: "pen", h: "hl", e: "eraser", l: "line", a: "arrow", r: "rect", o: "ell", t: "text" };
 const COLORS = ["ink", "#2f5bea", "#e5484d", "#22a45d", "#f2a20c", "#8b5cf6", "#0ea5b7", "#ec4899"];
 const HL_COLORS = ["#ffe45c", "#7ee08a", "#7cc8ff", "#ff9ec3", "#ffb35c"];
 const SIZES = [2, 4, 8];
@@ -35,6 +36,9 @@ let tool = "pen", color = "ink", hlColor = "#ffe45c", size = 4;
 let cv, cx, stage, W = 0, H = 0, dpr = 1;
 let live = null, raf = 0, textBox = null;
 let saveT = null;
+let sel = null, editing = null, symBar = null;   // the selected stroke, and the text being retyped
+const ends = { line: 0, arrow: 1 };
+let dash = 0;
 
 /* ---------- boards ---------- */
 function newBoard(name) {
@@ -76,12 +80,12 @@ function renderBar() {
   $("#wb-board-name").textContent = board.name;
   updateUndo(); updateZoom();
 }
-function switchTo(b) { commitText(); board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
+function switchTo(b) { commitText(); sel = null; board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
 
 /* ---------- undo ---------- */
 function snapshot() { undoStack.push(JSON.stringify(board.strokes)); if (undoStack.length > 60) undoStack.shift(); redoStack = []; updateUndo(); }
-function undo() { if (!undoStack.length) return; commitText(); redoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(undoStack.pop()); redraw(); save(); updateUndo(); }
-function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(redoStack.pop()); redraw(); save(); updateUndo(); }
+function undo() { if (!undoStack.length) return; commitText(); redoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(undoStack.pop()); sel = null; drawStyles(); redraw(); save(); updateUndo(); }
+function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(redoStack.pop()); sel = null; drawStyles(); redraw(); save(); updateUndo(); }
 function updateUndo() { $("#wb-undo").disabled = !undoStack.length; $("#wb-redo").disabled = !redoStack.length; }
 
 /* ---------- drawing ---------- */
@@ -102,11 +106,15 @@ function drawBg(c, v, w, h, bgCol, dotCol, bg) {
   else if (bg === "grid") { c.beginPath(); for (let x = ox; x < w; x += step) { c.moveTo(Math.round(x) + .5, 0); c.lineTo(Math.round(x) + .5, h); } for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + .5); c.lineTo(w, Math.round(y) + .5); } c.stroke(); }
   else if (bg === "lines") { c.beginPath(); for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + .5); c.lineTo(w, Math.round(y) + .5); } c.stroke(); }
 }
+const DASH = (d, w) => d === 1 ? [w * 3 + 4, w * 2.5 + 4] : d === 2 ? [0.01, w * 2.2 + 3] : [];
+const endsOf = s => s.e ?? (s.t === "arrow" ? 1 : 0);
+function head(c, x, y, a, L) { c.beginPath(); c.moveTo(x - L * Math.cos(a - .45), y - L * Math.sin(a - .45)); c.lineTo(x, y); c.lineTo(x - L * Math.cos(a + .45), y - L * Math.sin(a + .45)); c.stroke(); }
 function drawStroke(c, s, ink) {
   const p = s.p; c.lineCap = "round"; c.lineJoin = "round";
   c.globalAlpha = s.t === "hl" ? 0.38 : 1;
   c.strokeStyle = c.fillStyle = s.c === "ink" ? ink : s.c;
   c.lineWidth = s.t === "hl" ? s.w * 5 : s.w;
+  if (s.d && s.t !== "hl" && s.t !== "text") c.setLineDash(DASH(s.d, s.w));
   if (s.t === "pen" || s.t === "hl") {
     c.beginPath(); c.moveTo(p[0], p[1]);
     if (p.length === 2) c.lineTo(p[0] + .01, p[1]);
@@ -114,9 +122,12 @@ function drawStroke(c, s, ink) {
     c.stroke();
   } else if (s.t === "line" || s.t === "arrow") {
     c.beginPath(); c.moveTo(p[0], p[1]); c.lineTo(p[2], p[3]); c.stroke();
-    if (s.t === "arrow") {
+    const e = endsOf(s);
+    if (e) {
+      c.setLineDash([]);
       const a = Math.atan2(p[3] - p[1], p[2] - p[0]), L = Math.max(10, s.w * 3.5);
-      c.beginPath(); c.moveTo(p[2] - L * Math.cos(a - .45), p[3] - L * Math.sin(a - .45)); c.lineTo(p[2], p[3]); c.lineTo(p[2] - L * Math.cos(a + .45), p[3] - L * Math.sin(a + .45)); c.stroke();
+      if (e & 1) head(c, p[2], p[3], a, L);
+      if (e & 2) head(c, p[0], p[1], a + Math.PI, L);
     }
   } else if (s.t === "rect") {
     const x = Math.min(p[0], p[2]), y = Math.min(p[1], p[3]), w = Math.abs(p[2] - p[0]), h = Math.abs(p[3] - p[1]);
@@ -127,7 +138,7 @@ function drawStroke(c, s, ink) {
     c.font = `500 ${textSize(s.w)}px ${css("--f-hand") || "cursive"}`; c.textBaseline = "top";
     String(s.s).split("\n").forEach((ln, i) => c.fillText(ln, p[0], p[1] + i * textSize(s.w) * 1.15));
   }
-  c.globalAlpha = 1;
+  c.globalAlpha = 1; c.setLineDash([]);
 }
 function redraw() {
   if (!W || !board) return;
@@ -135,9 +146,26 @@ function redraw() {
   drawBg(cx, view, W, H, css("--board"), css("--board-dot"), board.bg);
   const ink = css("--ink");
   cx.setTransform(dpr * view.z, 0, 0, dpr * view.z, dpr * view.x, dpr * view.y);
-  for (const s of board.strokes) drawStroke(cx, s, ink);
+  for (const s of board.strokes) if (s !== editing) drawStroke(cx, s, ink);
   if (live) drawStroke(cx, live, ink);
+  if (sel && sel !== editing && board.strokes.includes(sel)) drawSel(cx);
   $("#wb-hint").hidden = board.strokes.length > 0 || !!live;
+}
+// selection: a dashed box, plus handles on the ends of a line or the corners of a shape
+function handlesOf(s) {
+  const p = s.p;
+  if (s.t === "line" || s.t === "arrow") return [[p[0], p[1]], [p[2], p[3]]];
+  if (s.t === "rect" || s.t === "ell") return [[p[0], p[1]], [p[2], p[1]], [p[2], p[3]], [p[0], p[3]]];
+  return [];
+}
+function drawSel(c) {
+  const bb = boundsOf([sel]); if (!bb) return;
+  const px = 1 / view.z, pad = 6 * px;
+  c.save(); c.strokeStyle = css("--accent") || "#2f5bea"; c.lineWidth = 1.5 * px; c.globalAlpha = 1;
+  if (sel.t !== "line" && sel.t !== "arrow") { c.setLineDash([5 * px, 4 * px]); c.strokeRect(bb.x - pad, bb.y - pad, bb.w + pad * 2, bb.h + pad * 2); c.setLineDash([]); }
+  c.fillStyle = css("--panel") || "#fff";
+  for (const [x, y] of handlesOf(sel)) { c.beginPath(); c.arc(x, y, 6 * px, 0, 7); c.fill(); c.stroke(); }
+  c.restore();
 }
 const req = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; redraw(); }); };
 
@@ -174,7 +202,7 @@ let mode = null, start = null, pinch = null, erasedAny = false, spaceDown = fals
 function local(e) { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
 const coalesced = e => { const list = e.getCoalescedEvents ? e.getCoalescedEvents() : []; return list.length ? list : [e]; };
 function onDown(e) {
-  if (e.target.closest(".wb-dock,.wb-zoom,.wb-text-in")) return;
+  if (e.target.closest(".wb-dock,.wb-zoom,.wb-text-in,.wb-sym")) return;
   closeMenu();
   stage.setPointerCapture(e.pointerId);
   const [sx, sy] = local(e); pointers.set(e.pointerId, [sx, sy]);
@@ -188,11 +216,14 @@ function onDown(e) {
   commitText();
   const [wx, wy] = toWorld(sx, sy);
   if (e.button === 1 || e.button === 2 || spaceDown || tool === "hand") { mode = "pan"; start = { sx, sy, vx: view.x, vy: view.y }; stage.classList.add("panning"); e.preventDefault(); return; }
-  if (tool === "text") { openText(sx, sy, wx, wy); mode = null; return; }
+  if (tool === "text") { const t = topHit(wx, wy, x => x.t === "text"); if (t) editText(t); else openText(sx, sy, wx, wy); mode = null; return; }
+  if (tool === "select") { selDown(sx, sy, wx, wy); return; }
   if (tool === "eraser") { mode = "erase"; erasedAny = false; eraseAt(wx, wy); return; }
   mode = "draw";
   if (tool === "pen" || tool === "hl") live = { t: tool, c: tool === "hl" ? hlColor : color, w: size, p: [rnd(wx), rnd(wy)] };
   else live = { t: tool, c: color, w: size, p: [rnd(wx), rnd(wy), rnd(wx), rnd(wy)] };
+  if (tool === "line" || tool === "arrow") live.e = ends[tool];
+  if (dash && tool !== "hl") live.d = dash;
   req();
 }
 function onMove(e) {
@@ -206,6 +237,14 @@ function onMove(e) {
   }
   if (mode === "pan") { view.x = start.vx + (sx - start.sx); view.y = start.vy + (sy - start.sy); req(); return; }
   if (mode === "erase") { for (const ce of coalesced(e)) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); eraseAt(x, y); } return; }
+  if ((mode === "move" || mode === "handle") && sel) {
+    if (!start.moved) { if (Math.hypot(sx - start.sx, sy - start.sy) < 3) return; snapshot(); start.moved = true; }
+    const [x, y] = toWorld(sx, sy), p = sel.p, o = start.orig;
+    if (mode === "move") { const dx = x - start.wx, dy = y - start.wy; for (let i = 0; i < p.length; i += 2) { p[i] = rnd(o[i] + dx); p[i + 1] = rnd(o[i + 1] + dy); } }
+    else if (sel.t === "line" || sel.t === "arrow") { p[start.i * 2] = rnd(x); p[start.i * 2 + 1] = rnd(y); }
+    else { const i = start.i; if (i === 0 || i === 3) p[0] = rnd(x); else p[2] = rnd(x); if (i < 2) p[1] = rnd(y); else p[3] = rnd(y); }
+    req(); return;
+  }
   if (mode === "draw" && live) {
     if (live.t === "pen" || live.t === "hl") {
       for (const ce of coalesced(e)) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); const p = live.p; if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) * view.z > 1.5) p.push(rnd(x), rnd(y)); }
@@ -225,12 +264,36 @@ function onUp(e) {
   if (mode === "pinch") { if (pointers.size === 0) { mode = null; saveView(); } return; }
   if (mode === "pan") { stage.classList.remove("panning"); mode = null; saveView(); return; }
   if (mode === "erase") { if (erasedAny) save(); mode = null; return; }
+  if (mode === "move" || mode === "handle") {
+    if (start.moved) save();
+    else if (mode === "move" && start.was && sel && sel.t === "text") editText(sel);   // tap a selected text again to retype it
+    mode = null; return;
+  }
   if (mode === "draw" && live) {
     const p = live.p, tiny = (live.t !== "pen" && live.t !== "hl") && Math.hypot(p[2] - p[0], p[3] - p[1]) * view.z < 4;
     if (!tiny) { snapshot(); board.strokes.push(live); save(); }
     live = null; req();
   }
   mode = null;
+}
+function topHit(x, y, ok = () => true) {
+  const r = 8 / view.z;
+  for (let i = board.strokes.length - 1; i >= 0; i--) { const s = board.strokes[i]; if (ok(s) && hits(s, x, y, r)) return s; }
+  return null;
+}
+function selDown(sx, sy, wx, wy) {
+  if (sel && board.strokes.includes(sel)) {
+    const r = 12 / view.z, i = handlesOf(sel).findIndex(([x, y]) => Math.hypot(x - wx, y - wy) < r);
+    if (i >= 0) { mode = "handle"; start = { i, sx, sy, orig: sel.p.slice(), moved: false }; return; }
+  }
+  const hit = topHit(wx, wy), was = !!hit && hit === sel;
+  sel = hit; drawStyles(); req();
+  mode = hit ? "move" : null;
+  if (hit) start = { sx, sy, wx, wy, orig: hit.p.slice(), moved: false, was };
+}
+function delSel() {
+  if (!sel) return;
+  snapshot(); board.strokes = board.strokes.filter(x => x !== sel); sel = null; save(); drawStyles(); req();
 }
 function eraseAt(x, y) {
   const r = 10 / view.z, before = board.strokes.length;
@@ -252,36 +315,104 @@ function fit() {
 }
 
 /* ---------- text ---------- */
-function openText(sx, sy, wx, wy) {
+// math: a row of symbols over the text box, and shortcuts that turn into symbols as you type
+const SYMS = [["²", "³", "ⁿ", "√", "∛", "π", "∞", "±", "×", "÷", "·", "≈", "≠", "≤", "≥", "°"], ["→", "←", "↔", "⇒", "⇔", "∴"],
+  ["α", "β", "γ", "δ", "Δ", "θ", "λ", "μ", "σ", "Σ", "φ", "ω", "Ω"], ["∫", "∑", "∏", "∂", "∇", "lim"],
+  ["∈", "∉", "⊂", "⊆", "∪", "∩", "∅", "∀", "∃", "¬", "∧", "∨", "ℝ", "ℕ", "ℤ"]];
+const SUP = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾", n: "ⁿ", i: "ⁱ", x: "ˣ", y: "ʸ" };
+const SUB = { 0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇", 8: "₈", 9: "₉", "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎", a: "ₐ", e: "ₑ", i: "ᵢ", n: "ₙ", o: "ₒ", x: "ₓ" };
+const PAIRS = [["←>", "↔"], ["<=", "≤"], [">=", "≥"], ["!=", "≠"], ["->", "→"], ["<-", "←"], ["=>", "⇒"], ["+-", "±"], ["~=", "≈"]];
+const WORDS = { alpha: "α", beta: "β", gamma: "γ", delta: "δ", Delta: "Δ", theta: "θ", lambda: "λ", mu: "μ", pi: "π", sigma: "σ", Sigma: "Σ", phi: "φ", omega: "ω", Omega: "Ω",
+  sqrt: "√", inf: "∞", infty: "∞", int: "∫", sum: "∑", prod: "∏", partial: "∂", nabla: "∇", times: "×", div: "÷", pm: "±", approx: "≈", neq: "≠", leq: "≤", geq: "≥",
+  in: "∈", notin: "∉", subset: "⊂", cup: "∪", cap: "∩", empty: "∅", forall: "∀", exists: "∃", deg: "°", therefore: "∴", to: "→", cdot: "·", R: "ℝ", N: "ℕ", Z: "ℤ" };
+function autoSym(inp) {
+  const pos = inp.selectionStart; if (pos !== inp.selectionEnd) return;
+  const before = inp.value.slice(0, pos); let m, rep = null, len = 0;
+  if ((m = before.match(/\^(.)$/)) && SUP[m[1]]) { rep = SUP[m[1]]; len = 2; }
+  else if ((m = before.match(/_(.)$/)) && SUB[m[1]]) { rep = SUB[m[1]]; len = 2; }
+  else if ((m = before.match(/\\([A-Za-z]+)([^A-Za-z])$/)) && WORDS[m[1]]) { rep = WORDS[m[1]] + (m[2] === " " ? "" : m[2]); len = m[0].length; }
+  else for (const [a, b] of PAIRS) if (before.endsWith(a)) { rep = b; len = a.length; break; }
+  if (rep !== null) inp.setRangeText(rep, pos - len, pos, "end");
+}
+const finishSym = v => v.replace(/\\([A-Za-z]+)$/, (w, k) => WORDS[k] || w);
+function openSyms(inp, sx, sy, fontPx, grow) {
+  const bar = document.createElement("div"); bar.className = "wb-sym surface";
+  bar.innerHTML = SYMS.map(g => g.map(c => `<button type="button" data-s="${c}">${c}</button>`).join("")).join(`<span class="wb-sep"></span>`)
+    + `<span class="wb-sep"></span><span class="wb-sym-tip">Or type ^2 x_1 &lt;= -&gt; \\pi</span>`;
+  stage.appendChild(bar);
+  const bw = bar.offsetWidth, bh = bar.offsetHeight;
+  bar.style.left = Math.max(8, Math.min(sx, W - bw - 8)) + "px";
+  bar.style.top = (sy - bh - 8 > 64 ? sy - bh - 8 : sy + fontPx * 1.2 + 10) + "px";
+  const keep = e => e.preventDefault();   // keep the text box focused
+  bar.addEventListener("pointerdown", keep); bar.addEventListener("mousedown", keep);
+  bar.addEventListener("click", e => {
+    const b = e.target.closest("[data-s]"); if (!b) return;
+    inp.setRangeText(b.dataset.s, inp.selectionStart, inp.selectionEnd, "end"); grow(); inp.focus();
+  });
+  symBar = bar;
+}
+function editText(s) {
+  commitText(); sel = s;
+  openText(s.p[0] * view.z + view.x, s.p[1] * view.z + view.y, s.p[0], s.p[1], s);
+}
+function openText(sx, sy, wx, wy, old = null) {
+  const w = old ? old.w : size, c = old ? old.c : color;
   const inp = document.createElement("textarea"); inp.className = "wb-text-in"; inp.rows = 1;
-  inp.style.left = sx + "px"; inp.style.top = sy + "px"; inp.style.fontSize = textSize(size) * view.z + "px";
-  inp.style.color = color === "ink" ? "var(--ink)" : color; inp.setAttribute("aria-label", "Type text");
+  inp.style.left = sx + "px"; inp.style.top = sy + "px"; inp.style.fontSize = textSize(w) * view.z + "px";
+  inp.style.color = c === "ink" ? "var(--ink)" : c; inp.setAttribute("aria-label", old ? "Edit text" : "Type text");
+  if (old) inp.value = old.s;
   stage.appendChild(inp);
   const grow = () => { inp.style.height = "auto"; inp.style.height = inp.scrollHeight + "px"; inp.style.width = "auto"; inp.style.width = Math.max(60, inp.scrollWidth + 8) + "px"; };
-  inp.addEventListener("input", grow); grow();
-  inp.addEventListener("keydown", e => { if (e.key === "Escape") { inp.value = ""; commitText(); } else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitText(); } });
+  inp.addEventListener("input", e => { if (e.inputType === "insertText") autoSym(inp); grow(); }); grow();
+  inp.addEventListener("keydown", e => { if (e.key === "Escape") { inp.value = old ? old.s : ""; commitText(); } else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitText(); } });
   inp.addEventListener("blur", () => setTimeout(commitText, 0));
-  textBox = { el: inp, wx, wy, c: color, w: size };
-  setTimeout(() => inp.focus(), 0);
+  textBox = { el: inp, wx, wy, c, w, old };
+  if (old) { editing = old; req(); }
+  openSyms(inp, sx, sy, textSize(w) * view.z, grow);
+  setTimeout(() => { inp.focus(); if (old) inp.setSelectionRange(inp.value.length, inp.value.length); }, 0);
 }
 function commitText() {
-  if (!textBox) return; const tb = textBox; textBox = null;
-  const v = tb.el.value.replace(/\s+$/, ""); tb.el.remove();
+  if (!textBox) return; const tb = textBox; textBox = null; editing = null;
+  const v = finishSym(tb.el.value).replace(/\s+$/, ""); tb.el.remove();
+  if (symBar) { symBar.remove(); symBar = null; }
+  if (tb.old) {   // retyped an existing text: empty deletes it
+    const o = tb.old;
+    if (board.strokes.includes(o)) {
+      if (!v) { snapshot(); board.strokes = board.strokes.filter(x => x !== o); if (sel === o) sel = null; save(); }
+      else if (v !== o.s) { snapshot(); o.s = v; save(); }
+    }
+    drawStyles(); req(); return;
+  }
   if (v) { snapshot(); board.strokes.push({ t: "text", c: tb.c, w: tb.w, p: [rnd(tb.wx), rnd(tb.wy)], s: v }); save(); req(); }
 }
 
 /* ---------- tool dock ---------- */
+// little pictures for the line options: plain, arrowheads, dashes
+const lineIc = (start, end, dashed = "") => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16"${dashed}/>${end ? `<path d="M15 7l5 5-5 5"/>` : ""}${start ? `<path d="M9 7l-5 5 5 5"/>` : ""}</svg>`;
+const ENDS = [[0, "No arrowheads", lineIc(0, 0)], [1, "Arrow at the end", lineIc(0, 1)], [2, "Arrow at the start", lineIc(1, 0)], [3, "Arrows at both ends", lineIc(1, 1)]];
+const DASHES = [[0, "Solid", lineIc(0, 0)], [1, "Dashed", lineIc(0, 0, ` stroke-dasharray="4 3.5"`)], [2, "Dotted", lineIc(0, 0, ` stroke-dasharray="0.1 4"`)]];
 function drawStyles() {
-  const cols = tool === "hl" ? HL_COLORS : COLORS, cur = tool === "hl" ? hlColor : color;
-  $("#wb-styles").innerHTML = cols.map(c => `<button class="wb-sw" data-color="${c}" aria-label="Color ${c === "ink" ? "black" : c}" aria-pressed="${c === cur}" style="background:${c === "ink" ? "var(--ink)" : c}"></button>`).join("") +
-    `<span class="wb-sep"></span>` + SIZES.map(s => `<button class="wb-sz" data-size="${s}" aria-label="Size ${s}" aria-pressed="${s === size}"><i style="width:${s + 3}px;height:${s + 3}px"></i></button>`).join("");
-  $("#wb-styles").hidden = tool === "hand" || tool === "eraser";
+  const el = $("#wb-styles"); if (!el) return;
+  const it = tool === "select" && sel && board && board.strokes.includes(sel) ? sel : null;
+  if (tool === "hand" || tool === "eraser" || (tool === "select" && !it)) { el.hidden = true; return; }
+  const t = it ? it.t : tool;
+  const cols = t === "hl" ? HL_COLORS : COLORS;
+  const curC = it ? it.c : t === "hl" ? hlColor : color, curW = it ? it.w : size;
+  const curE = it ? endsOf(it) : ends[t], curD = it ? (it.d || 0) : dash;
+  const sep = `<span class="wb-sep"></span>`;
+  let h = cols.map(c => `<button class="wb-sw" data-color="${c}" aria-label="Color ${c === "ink" ? "black" : c}" aria-pressed="${c === curC}" style="background:${c === "ink" ? "var(--ink)" : c}"></button>`).join("") +
+    sep + SIZES.map(s => `<button class="wb-sz" data-size="${s}" aria-label="Size ${s}" aria-pressed="${s === curW}"><i style="width:${s + 3}px;height:${s + 3}px"></i></button>`).join("");
+  if (t === "line" || t === "arrow") h += sep + ENDS.map(([v, l, ic]) => `<button class="wb-sz wb-opt" data-ends="${v}" aria-label="${l}" title="${l}" aria-pressed="${v === curE}">${ic}</button>`).join("");
+  if (["pen", "line", "arrow", "rect", "ell"].includes(t)) h += sep + DASHES.map(([v, l, ic]) => `<button class="wb-sz wb-opt" data-dash="${v}" aria-label="${l}" title="${l}" aria-pressed="${v === curD}">${ic}</button>`).join("");
+  if (it) h += sep + `<button class="wb-sz wb-opt wb-del" data-del aria-label="Delete" title="Delete (Del)">${svg("trash2")}</button>`;
+  el.innerHTML = h; el.hidden = false;
 }
 function setTool(t) {
   commitText(); tool = t;
+  if (t !== "select") sel = null;
   root.querySelectorAll("[data-tool]").forEach(b => b.setAttribute("aria-pressed", b.dataset.tool === t));
-  stage.className = "wb-stage " + (t === "hand" ? "pan" : t === "eraser" ? "erase" : t === "text" ? "text" : "draw");
-  drawStyles();
+  stage.className = "wb-stage " + (t === "hand" ? "pan" : t === "eraser" ? "erase" : t === "text" ? "text" : t === "select" ? "select" : "draw");
+  drawStyles(); req();
 }
 
 /* ---------- menus ---------- */
@@ -433,9 +564,23 @@ async function mount(el, ctx) {
 
   $("#wb-tools").addEventListener("click", e => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
   $("#wb-styles").addEventListener("click", e => {
-    const c = e.target.closest("[data-color]"), s = e.target.closest("[data-size]");
-    if (c) { if (tool === "hl") hlColor = c.dataset.color; else color = c.dataset.color; drawStyles(); }
-    if (s) { size = +s.dataset.size; drawStyles(); }
+    if (e.target.closest("[data-del]")) { delSel(); return; }
+    const c = e.target.closest("[data-color]"), s = e.target.closest("[data-size]"), en = e.target.closest("[data-ends]"), d = e.target.closest("[data-dash]");
+    if (!c && !s && !en && !d) return;
+    const it = tool === "select" && sel && board.strokes.includes(sel) ? sel : null;
+    if (it) {   // change the selected line, shape or text
+      snapshot();
+      if (c) it.c = c.dataset.color;
+      if (s) it.w = +s.dataset.size;
+      if (en) it.e = +en.dataset.ends;
+      if (d) { if (+d.dataset.dash) it.d = +d.dataset.dash; else delete it.d; }
+      save(); req(); drawStyles(); return;
+    }
+    if (c) { if (tool === "hl") hlColor = c.dataset.color; else color = c.dataset.color; }
+    if (s) size = +s.dataset.size;
+    if (en) ends[tool] = +en.dataset.ends;
+    if (d) dash = +d.dataset.dash;
+    drawStyles();
   });
   $("#wb-undo").onclick = undo; $("#wb-redo").onclick = redo;
   $("#wb-zin").onclick = () => zoomAt(W / 2, H / 2, 1.25);
@@ -447,7 +592,8 @@ async function mount(el, ctx) {
   document.addEventListener("keydown", e => {
     if (!ctx0.isActive() || e.target.matches("input,textarea,select")) return;
     const k = e.key.toLowerCase();
-    if (k === "escape") { closeMenu(); return; }
+    if (k === "escape") { closeMenu(); if (sel) { sel = null; drawStyles(); req(); } return; }
+    if ((k === "delete" || k === "backspace") && tool === "select" && sel) { e.preventDefault(); delSel(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;

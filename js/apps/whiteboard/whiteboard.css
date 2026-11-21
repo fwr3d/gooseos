@@ -67,3 +67,14 @@
 .wb-rename{padding:6px}
 .wb-rename input{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:9px 11px;font-size:16px}
 .wb-rename input:focus{outline:none;border-color:var(--accent)}
+
+/* select tool, line options, math symbols */
+.wb-stage.select{cursor:default}
+.wb-opt{color:var(--ink)}
+.wb-opt svg,.wb-opt .ic{width:20px;height:20px}
+.wb-del{color:var(--bad)}
+.wb-sym{position:absolute;z-index:5;display:flex;align-items:center;gap:1px;padding:4px;border-radius:14px;max-width:calc(100% - 16px);overflow-x:auto;scrollbar-width:none;touch-action:pan-x;user-select:none;-webkit-user-select:none}
+.wb-sym::-webkit-scrollbar{display:none}
+.wb-sym button{flex:none;min-width:32px;height:32px;padding:0 6px;border:0;border-radius:9px;background:transparent;color:var(--ink);font-size:17px;font-family:var(--f-ui)}
+.wb-sym button:hover{background:var(--accent-soft)}
+.wb-sym-tip{flex:none;font-size:12px;color:var(--muted);padding:0 8px;white-space:nowrap}
