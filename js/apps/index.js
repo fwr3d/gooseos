@@ -1,7 +1,7 @@
 // Every app on the home screen. To add an app, make a folder under js/apps/
 // that exports:
 //   { id, name, icon,          // icon = a name from js/icons.js
-//     tint?: "warm" | "red" | "blue" | "green" | "violet" | "gray", // icon tile color (gray if left out)
+//     tint?: "warm" | "red" | "blue" | "green" | "violet" | "teal" | "pink" | "navy" | "gray", // icon tile color (gray if left out)
 //     dock?: true,             // show in the dock instead of the grid
 //     mount(el, ctx), show?(arg), hide?(),   // arg = the part after "/" in "#app/arg"
 //     badge?() -> text|number, // little red bubble on the icon

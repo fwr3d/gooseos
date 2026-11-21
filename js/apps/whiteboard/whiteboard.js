@@ -506,4 +506,4 @@ function timeAgo(t) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-export default { id: APP, name: "Whiteboard", icon: "presentation", tint: "gray", dock: true, mount, show, hide, widget };
+export default { id: APP, name: "Whiteboard", icon: "presentation", tint: "teal", dock: true, mount, show, hide, widget };
