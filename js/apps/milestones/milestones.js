@@ -5,6 +5,7 @@
 //   { title, course, template, due (ms), deadlineKey?, blockedDays: [0-6], steps: [{ id, title, date (ms), estMin, done, kind?, topic?, rating? }], created }
 //   Exam steps carry kind ("study" | "review"). Older plans may have "gather" | "first" | "quiz" | "practice" |
 //   "mistakes" | "cheat" | "night" | "again"; a finished "quiz" step there asks Got it / Shaky (rating "good" | "shaky").
+//   A Shaky study step or practice question adds one "again" step, { kind: "again", topic, ref: "step:<id>" | "q:<doc id>:<question key>" }.
 // Each unfinished step is shared with Reminders and Today through agenda().
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
@@ -326,9 +327,48 @@ function openReader(doc, { onEdit, onPractice }) {
     render(body) { body.innerHTML = `<article class="fv-doc ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</article>`; },
   });
 }
-/** Practice a questions doc; the list redraws with the new marks when you close it. */
+/** Practice a questions doc; the list redraws with the new marks when you close it.
+ *  Each question marked Shaky gets a short review step before the exam. */
 function practice(id, doc) {
-  openPractice(doc, { toast: ctx0.toast, onClose: () => { if (current === id) renderDetail(id); } });
+  const added = [];
+  openPractice(doc, {
+    toast: ctx0.toast,
+    onMark: async (q, mark) => {
+      if (mark !== "shaky") return;
+      const first = q.q.split("\n")[0].replace(/\*\*|`/g, "").trim();
+      const r = await addReview(id, { topic: first.length > 70 ? first.slice(0, 70).replace(/\s+\S*$/, "") + "…" : first, ref: `q:${doc.id}:${q.key}`, estMin: 15 });
+      if (r) added.push(r);
+    },
+    onClose: () => { if (current === id) renderDetail(id); if (added.length) reviewToast(id, added); },
+  });
+}
+
+/* ---------- shaky topics come back: a short review step before the exam ---------- */
+const topicKey = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** Add "Review: <topic>" unless an open review for the same step, question or topic is already there.
+ *  Returns { step, added } or null when the exam is too close for one. */
+async function addReview(id, { topic, ref, estMin = 20 }) {
+  let out = null;
+  await update(id, m => {
+    const same = m.steps.find(s => s.kind === "again" && !s.done && ((ref && s.ref === ref) || (topic && topicKey(s.topic) === topicKey(topic))));
+    if (same) { out = { step: same, added: false }; return m; }
+    if (m.due - Date.now() < 2 * 3600e3) return m;
+    const step = { id: "s" + uid(), title: `Review: ${topic}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin, done: false, kind: "again", topic, ...(ref ? { ref } : {}) };
+    out = { step, added: true };
+    return { ...m, steps: [...m.steps, step] };
+  });
+  return out;
+}
+function reviewToast(id, list) {
+  const added = list.filter(r => r.added);
+  if (!added.length) { ctx0.toast(list.length === 1 ? `“${list[0].step.title}” is already on your plan.` : "Reviews for those are already on your plan."); return; }
+  const msg = added.length === 1 ? `Added “${added[0].step.title}” for ${dueLabel(added[0].step.date)}.` : `Added ${added.length} review steps for what was shaky.`;
+  ctx0.toast(msg, { label: "Undo", run: async () => {
+    const t = document.querySelector(".toast"); if (t) t.hidden = true;
+    const ids = new Set(added.map(r => r.step.id));
+    await update(id, m => ({ ...m, steps: m.steps.filter(s => !ids.has(s.id)) }));
+    if (current === id) renderDetail(id);
+  } });
 }
 /** For the doc editor: builds the prompt for a guide or practice questions on this step. */
 const promptFor = sid => ws.m.template === "exam" ? kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind) : null;
@@ -665,13 +705,12 @@ async function mount(el, ctx) {
       renderDetail(id);
     } else if (act === "rate-good" || act === "rate-shaky") {
       const shaky = act === "rate-shaky";
-      const m = await update(id, m => {
-        const s = m.steps.find(x => x.id === sid); if (!s) return m;
-        const steps = m.steps.map(x => x.id === sid ? { ...x, rating: shaky ? "shaky" : "good" } : x);
-        if (shaky) steps.push({ id: "s" + uid(), title: `Review again: ${s.topic || s.title.replace(/^(Quiz yourself|Study):\s*/, "")}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin: 45, done: false, kind: "again", topic: s.topic });
-        return { ...m, steps };
-      });
-      if (shaky && m) { const a = m.steps[m.steps.length - 1]; ctx0.toast(`Added “${a.title}” for ${dueLabel(a.date)}.`); }
+      const m = await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, rating: shaky ? "shaky" : "good" } : x) }));
+      const s = m && m.steps.find(x => x.id === sid);
+      if (shaky && s) {
+        const r = await addReview(id, { topic: s.topic || s.title.replace(/^(Quiz yourself|Study):\s*/, ""), ref: `step:${s.id}` });
+        if (r) reviewToast(id, [r]);
+      }
       renderDetail(id);
     } else if (act === "rmstep") {
       await update(id, m => ({ ...m, steps: m.steps.filter(s => s.id !== sid) }));
