@@ -29,6 +29,47 @@ export async function moveDocs(fromOwner, toOwner) {
   for (const d of await listDocs(fromOwner)) if (d.owner === fromOwner) await saveDoc({ ...d, owner: toOwner });
 }
 
+/* ---------- practice questions ----------
+   A questions doc is what the study prompt asks for: numbered questions, then a heading
+   "Answers" with the answers numbered the same way. An answer can also sit under its
+   question on a line starting "Answer:". Marks from practice are saved on the doc as
+   marks: { <question key>: "good" | "shaky" }, keyed by the question's text so edits that
+   renumber the list keep them. */
+const ANSWERS_HEAD = /^\s*(#{1,6}\s*)?(\*\*)?\s*(answers?|answer key|solutions?)\s*:?\s*(\*\*)?\s*:?\s*$/i;
+const INLINE_ANS = /^\s*(\*\*)?\s*(answer|ans|solution)\s*(\*\*)?\s*[:.]\s*(\*\*)?\s*/i;
+export const questionKey = text => String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
+/** [{ n, key, q (markdown), a (markdown or "") }] in order. */
+export function parseQuestions(md) {
+  const lines = String(md || "").replace(/\r/g, "").split("\n");
+  const at = lines.findIndex(l => ANSWERS_HEAD.test(l));
+  const blocks = part => {
+    const out = []; let cur = null;
+    for (const l of part) {
+      const m = l.match(/^\s*(\d+)[.)]\s+(.*)$/);
+      if (m) { cur = { n: +m[1], lines: [m[2]] }; out.push(cur); }
+      else if (/^\s*#{1,6}\s/.test(l)) cur = null;
+      else if (cur) cur.lines.push(l);
+    }
+    return out;
+  };
+  const qs = blocks(at < 0 ? lines : lines.slice(0, at)), as = at < 0 ? [] : blocks(lines.slice(at + 1));
+  const byN = new Map(as.map(a => [a.n, a]));
+  return qs.map((b, i) => {
+    let q = b.lines, a = [];
+    const k = q.findIndex(l => INLINE_ANS.test(l));
+    if (k >= 0) { a = [q[k].replace(INLINE_ANS, ""), ...q.slice(k + 1)]; q = q.slice(0, k); }
+    const sec = as.length === qs.length ? as[i] : byN.get(b.n);
+    if (!a.length && sec) a = sec.lines;
+    const text = q.join("\n").trim();
+    return { n: b.n, key: questionKey(text), q: text, a: a.join("\n").trim() };
+  });
+}
+/** Save practice marks without counting it as an edit. */
+export async function saveMarks(id, marks) {
+  const raw = await store.get(APP, id); if (!raw) return;
+  await store.put(APP, id, { ...raw, marks });
+}
+
 /* ---------- study prompt ---------- */
 /** A ready-made prompt to paste into any AI chat. Nothing is sent anywhere from here. */
 export function studyPrompt(m, step, kind) {

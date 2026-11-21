@@ -44,6 +44,7 @@ const FILES = [
   "js/apps/milestones/plan.js",
   "js/apps/milestones/templates.js",
   "js/apps/milestones/workspace.js",
+  "js/apps/milestones/practice.js",
   "js/apps/wallet/wallet.js",
   "js/apps/wallet/wallet.css",
   "js/apps/reset/reset.js",

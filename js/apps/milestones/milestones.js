@@ -16,6 +16,7 @@ import * as sync from "../../sync.js";
 import { openViewer, viewFile } from "../../viewer.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
 import { listDocs, saveDoc, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
+import { openPractice, marksOf } from "./practice.js";
 
 const tplLabel = m => m.templateName || TEMPLATES[m.template]?.label || "Custom";
 
@@ -254,7 +255,6 @@ function ago(t) {
 
 /** Plain text from markdown, for the short preview. */
 const plain = md => String(md || "").replace(/```[\s\S]*?```/g, " ").replace(/^\s*(#{1,6}|[-*+]|\d+[.)])\s+/gm, "").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim();
-const countQs = md => (String(md || "").match(/^\s*\d+[.)]\s+/gm) || []).length;
 function drawWorkspace() {
   const box = $("#ms-ws"); if (!box || !ws) return;
   const { id, m, att, docs } = ws;
@@ -267,13 +267,15 @@ function drawWorkspace() {
   const also = step ? [...docs.filter(d => !stepOf(d.owner)).map(d => d.title), ...att.filter(f => !stepOf(f.owner)).map(f => f.name)] : [];
   const steps = [...m.steps].sort((a, b) => a.date - b.date);
   const docRow = d => {
-    const guide = d.kind === "guide", qs = d.kind === "questions" ? countQs(d.body) : 0;
-    const meta = [guide ? "Study guide" : "Note", qs ? `${qs} question${qs === 1 ? "" : "s"}` : `edited ${ago(d.updated || d.created)}`].join(" · ");
+    const guide = d.kind === "guide", qm = d.kind === "questions" ? marksOf(d) : null, qs = qm ? qm.n : 0;
+    const meta = [guide ? "Study guide" : qm ? "Practice questions" : "Note", qs ? `${qs} question${qs === 1 ? "" : "s"}` : `edited ${ago(d.updated || d.created)}`,
+      qm && qm.good + qm.shaky ? `${qm.good} got it, ${qm.shaky} shaky` : ""].filter(Boolean).join(" · ");
     const excerpt = plain(d.body);
     return `<div class="ws-doc" data-did="${esc(d.id)}">
-      <button class="ws-row" data-act="ws-open"><span class="ws-ic ${guide ? "acc" : ""}">${svg(DOC_ICON[d.kind] || "fileText")}</span>
+      <div class="ws-docrow"><button class="ws-row" data-act="ws-open"><span class="ws-ic ${guide ? "acc" : ""}">${svg(DOC_ICON[d.kind] || "fileText")}</span>
         <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">${esc(meta)}</span></span>
         ${guide ? `<span class="ms-tag blue">guide</span>` : ""}</button>
+        ${qs ? `<button class="ms-ob sm ws-practice" data-act="ws-practice">${svg("play")}Practice</button>` : ""}</div>
       ${guide && excerpt ? `<div class="ws-prev"><p>${esc(excerpt.length > 170 ? excerpt.slice(0, 170).replace(/\s+\S*$/, "") + "…" : excerpt)}</p><button class="ws-link" data-act="ws-open">Open full guide</button></div>` : ""}
     </div>`;
   };
@@ -312,16 +314,21 @@ function drawWorkspace() {
     ${also.length ? `<button class="ws-also" data-act="ws-all">Also on the whole ${whole}: ${esc(also.join(", "))}</button>` : ""}`;
 }
 /** Read a note or guide in full; Edit and Copy from here. */
-function openReader(doc, { onEdit }) {
+function openReader(doc, { onEdit, onPractice }) {
   openViewer({
     title: doc.title, sub: `${KINDS[doc.kind] || "Note"} · edited ${ago(doc.updated || doc.created)}`,
     actions: [
+      ...(onPractice && doc.kind === "questions" && marksOf(doc).n ? [{ label: "Practice", icon: "play", run: ({ close }) => { close(); onPractice(); } }] : []),
       { label: "Copy text", icon: "copy", run: async () => ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead.") },
       { label: "Edit", icon: "pencilLine", run: ({ close }) => { close(); onEdit(); } },
       { label: "Open in Code", icon: "code", run: ({ close }) => { close(); location.hash = `code/doc:${encodeURIComponent(doc.id)}`; } },
     ],
     render(body) { body.innerHTML = `<article class="fv-doc ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</article>`; },
   });
+}
+/** Practice a questions doc; the list redraws with the new marks when you close it. */
+function practice(id, doc) {
+  openPractice(doc, { toast: ctx0.toast, onClose: () => { if (current === id) renderDetail(id); } });
 }
 /** For the doc editor: builds the prompt for a guide or practice questions on this step. */
 const promptFor = sid => ws.m.template === "exam" ? kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind) : null;
@@ -626,9 +633,11 @@ async function mount(el, ctx) {
     if (act === "ws-all") { openDoc = null; selectStep(null); return; }
     if (act === "pick-doc") { openDoc = did; selectStep(sid); return; }
     if (act === "ws-open" && doc) {
-      openReader(doc, { onEdit: () => openDocEditor(root, doc, { toast: ctx0.toast, prompt: promptFor(String(doc.owner).split(":")[2] || null), onSave: () => renderDetail(id), onDelete: () => renderDetail(id) }) });
+      openReader(doc, { onEdit: () => openDocEditor(root, doc, { toast: ctx0.toast, prompt: promptFor(String(doc.owner).split(":")[2] || null), onSave: () => renderDetail(id), onDelete: () => renderDetail(id) }),
+        onPractice: () => practice(id, doc) });
       return;
     }
+    if (act === "ws-practice" && doc) { practice(id, doc); return; }
     if (act === "more-steps") { expanded = !expanded; renderDetail(id); return; }
     if (act === "add-open") { addOpen = true; renderDetail(id); return; }
     if (act === "fmore") { e.target.closest(".ms-frow").classList.toggle("tools-on"); return; }
