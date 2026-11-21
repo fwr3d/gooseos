@@ -7,6 +7,8 @@
 //   list: a list id from js/lists.js (school, frat, personal, money, or yours).
 //   Without one, it's School when there's a course and Personal when there isn't.
 // Settings live in app "deadlines-config", item "brightspace": { url, lastSync }.
+// Brightspace deadlines you delete leave a note in app "deadlines-gone" ({ at }, same id),
+// so the next sync doesn't bring them back.
 import * as store from "../../store.js";
 import { svg, tile } from "../../icons.js";
 import * as lists from "../../lists.js";
@@ -15,6 +17,7 @@ import { parseICS, eventsToDeadlines, idFor, isAvailableOnly } from "./ics.js";
 
 const APP = "deadlines";
 const CFG = "deadlines-config";
+const GONE = "deadlines-gone";
 const SOURCES = {
   brightspace: { label: "Brightspace", icon: "graduationCap" },
   gradescope: { label: "Gradescope", icon: "listChecks" },
@@ -78,6 +81,8 @@ export async function addFromText(text) {
   return { id, ...item };
 }
 
+/** Remember a Brightspace deadline was deleted on purpose, so syncing skips it from now on. */
+async function forget(d) { if (d && d.source === "brightspace") await store.put(GONE, d.id, { at: Date.now() }); }
 async function getConfig() { return (await store.get(CFG, "brightspace")) || {}; }
 
 /** Pull the Brightspace calendar and update the list. Returns { added, updated, removed }. */
@@ -90,10 +95,13 @@ export async function syncBrightspace() {
   const now = Date.now(), from = now - 21 * 864e5, to = now + 200 * 864e5;
   const incoming = eventsToDeadlines(parseICS(text)).filter(e => e.due >= from && e.due <= to);
   const existing = new Map((await loadDeadlines()).filter(d => d.source === "brightspace").map(d => [d.id, d]));
+  const goneRows = await store.list(GONE).catch(() => []), gone = new Set(goneRows.map(r => r.id));
   let added = 0, updated = 0, removed = 0;
-  const seen = new Set();
+  const seen = new Set(), ids = new Set(incoming.map(e => idFor(e.uid)));
   for (const e of incoming) {
-    const id = idFor(e.uid); seen.add(id);
+    const id = idFor(e.uid);
+    if (gone.has(id)) continue;   // you deleted this one
+    seen.add(id);
     const cur = existing.get(id);
     if (!cur) { await store.put(APP, id, { title: e.title, course: e.course, due: e.due, source: "brightspace", done: false, url: e.url, uid: e.uid, created: now }); added++; continue; }
     if (cur.edited) continue;
@@ -104,6 +112,8 @@ export async function syncBrightspace() {
   }
   // gone from Brightspace (and still upcoming, not done) → remove
   for (const [id, d] of existing) if (!seen.has(id) && !d.done && !d.edited && d.due && d.due > now) { await store.remove(APP, id); removed++; }
+  // notes for deadlines Brightspace no longer lists can go once they're two months old
+  for (const r of goneRows) if (!ids.has(r.id) && (r.data && r.data.at || 0) < now - 60 * 864e5) await store.remove(GONE, r.id);
   await store.put(CFG, "brightspace", { ...cfg, lastSync: now });
   return { added, updated, removed };
 }
@@ -163,10 +173,10 @@ export async function cleanDuplicates() {
     }
   }
   if (!gone.size && !changed.size) return null;
-  for (const id of gone) await store.remove(APP, id);
+  for (const id of gone) { await forget(snap.get(id)); await store.remove(APP, id); }
   for (const id of changed.keys()) { const { id: _i, ...data } = live.find(d => d.id === id); await store.put(APP, id, data); }
   const removed = gone.size - merged;
-  const undo = async () => { for (const id of [...gone, ...changed.keys()]) { const { id: _i, ...data } = snap.get(id); await store.put(APP, id, data); } };
+  const undo = async () => { for (const id of gone) await store.remove(GONE, id); for (const id of [...gone, ...changed.keys()]) { const { id: _i, ...data } = snap.get(id); await store.put(APP, id, data); } };
   return { removed, merged, undo };
 }
 
@@ -349,7 +359,7 @@ function openEdit(d) {
   back.addEventListener("click", e => { if (e.target === back) close(); });
   f.querySelector('[data-act="cancel"]').onclick = close;
   const del = f.querySelector('[data-act="del"]');
-  if (del) del.onclick = async () => { close(); await store.remove(APP, d.id); ctx0.toast(`Deleted “${d.title}”`); render(); };
+  if (del) del.onclick = async () => { close(); await forget(d); await store.remove(APP, d.id); ctx0.toast(`Deleted “${d.title}”`); render(); };
   // "Break it down" appears once the Milestones app exists
   const bd = f.querySelector('[data-act="breakdown"]');
   if (bd) import("../index.js").then(async m => {
