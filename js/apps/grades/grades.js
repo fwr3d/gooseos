@@ -389,6 +389,56 @@ function editWeights(course, g, settings) {
   };
 }
 
+/**
+ * What one still-to-come item needs for each letter, if everything else still to come
+ * scores your current average in its category (or your overall grade where a category
+ * has no scores yet). With no scores at all, it's the same x as everything left.
+ * Each value is { kind: "need", x (percent on this item) } | { kind: "locked" } | { kind: "out", max } | { kind: "done", final }.
+ */
+function needOnItem(course, allItems, cut, itemId) {
+  const g = grade(course, allItems, cut);
+  const it = allItems.find(i => i.id === itemId);
+  const cat = it && g.cats.find(c => c.items.includes(it));
+  if (!cat || typeof it.score === "number" || !(+it.outOf > 0)) return null;
+  if (g.current === null) return g.need;
+  const overall = g.current / 100, totalW = g.cats.reduce((n, c) => n + c.w, 0) || 1;
+  let base = 0, slope = 0;
+  for (const c of g.cats) {
+    const all = c.possible + c.toCome, rate = c.avg ?? overall;
+    if (all <= 0) { base += c.w * rate; continue; }
+    const others = c.toCome - (c === cat ? +it.outOf : 0);
+    base += c.w * (c.earned + others * rate) / all;
+    if (c === cat) slope += c.w * +it.outOf / all;
+  }
+  base /= totalW; slope /= totalW;
+  const need = {};
+  for (const L of LETTERS) {
+    const x = (cut[L] / 100 - base) / slope;
+    need[L] = x <= 0 ? { kind: "locked" } : x > 1 + 1e-9 ? { kind: "out", max: (base + slope) * 100 } : { kind: "need", x: x * 100 };
+  }
+  return need;
+}
+
+const words = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/**
+ * For an exam in Milestones: the score it needs for an A, B and C.
+ * Finds the class by code and the still-to-come score whose name matches the exam.
+ * Returns null when the class has no scores or items in Grades.
+ *   { code, courseId, item: { title, outOf } | null, need: { A, B, C } }   (item null = the average on everything left)
+ */
+export async function examNeed({ course, title }) {
+  if (!course) return null;
+  const { courses, items, settings } = await loadAll();
+  const c = courses.find(x => same(x.code, course)); if (!c) return null;
+  const mine = items.filter(i => i.course === c.id); if (!mine.length) return null;
+  const cut = cutoffsOf(settings, c.id), t = words(title);
+  const open = mine.filter(i => typeof i.score !== "number" && +i.outOf > 0);
+  const hit = t ? open.find(i => words(i.title) === t) || open.find(i => { const w = words(i.title); return w && (t.includes(w) || w.includes(t)); }) : null;
+  const need = hit ? needOnItem(c, items, cut, hit.id) : grade(c, items, cut).need;
+  if (!need) return null;
+  return { code: c.code, courseId: c.id, item: hit ? { title: hit.title, outOf: +hit.outOf } : null, need: { A: need.A, B: need.B, C: need.C } };
+}
+
 /* ---------- for the rest of GooseOS ---------- */
 /** Today's At a glance: only when a class dropped a letter this week. */
 async function summary() {
@@ -425,5 +475,5 @@ async function show(arg) {
 }
 
 // exported for tests
-export { grade, letterOf, drops, DEFAULT_CUTOFFS };
+export { grade, letterOf, drops, needOnItem, DEFAULT_CUTOFFS };
 export default { id: APP, name: "Grades", icon: "calculator", tint: "violet", mount, show, summary };

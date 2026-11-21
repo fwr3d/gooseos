@@ -5,18 +5,21 @@
 //   { title, course, template, due (ms), deadlineKey?, blockedDays: [0-6], steps: [{ id, title, date (ms), estMin, done, kind?, topic?, rating? }], created }
 //   Exam steps carry kind ("study" | "review"). Older plans may have "gather" | "first" | "quiz" | "practice" |
 //   "mistakes" | "cheat" | "night" | "again"; a finished "quiz" step there asks Got it / Shaky (rating "good" | "shaky").
+//   A Shaky study step or practice question adds one "again" step, { kind: "again", topic, ref: "step:<id>" | "q:<doc id>:<question key>" }.
+//   A step that sat on a Schedule break and was moved has offBreak: "<break name>"; one you dated yourself has pinned: true and isn't moved.
 // Each unfinished step is shared with Reminders and Today through agenda().
 import * as store from "../../store.js";
 import { svg } from "../../icons.js";
 import { dueLabel, toLocalInput } from "../deadlines/parse.js";
 import { knownCourses, courseColor } from "../deadlines/deadlines.js";
-import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate } from "./plan.js";
+import { TEMPLATES, DAY_NAMES, DEFAULT_BLOCKED, buildPlan, replan, shakyReviewDate, offBreaks } from "./plan.js";
 import * as files from "../../files.js";
 import * as sync from "../../sync.js";
 import { openViewer, viewFile } from "../../viewer.js";
 import { loadTemplates, openCreator, stepsFromPlan } from "./templates.js";
 import { listDocs, saveDoc, removeDoc, moveDocs, studyPrompt, copyText, renderMd, openDocEditor, KINDS } from "./workspace.js";
 import { classNotesInto } from "../schedule/class.js";
+import { openPractice, marksOf } from "./practice.js";
 
 const tplLabel = m => m.templateName || TEMPLATES[m.template]?.label || "Custom";
 
@@ -45,8 +48,22 @@ const fmtDur = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : 
 /* ---------- data ---------- */
 export async function loadMilestones() {
   const list = (await store.list(APP)).map(r => ({ id: r.id, ...r.data })).filter(m => m && Array.isArray(m.steps));
-  for (const m of list) await followDeadline(m);
+  const breaks = await loadBreaks();
+  for (const m of list) { await followDeadline(m); await followBreaks(m, breaks); }
   return list;
+}
+
+/** Breaks and days off from Schedule's semester. */
+async function loadBreaks() {
+  try { return ((await (await import("../schedule/schedule.js")).loadSemester()).breaks || []).filter(b => b && b.from); }
+  catch (e) { return []; }
+}
+/** Open steps sitting on a break move to the nearest open day (plan.js offBreaks). Returns the moved steps. */
+async function followBreaks(m, breaks) {
+  if (m.deadlineDone || !breaks.length) return [];
+  const r = offBreaks(m.steps, Date.now(), m.due, breaks, m.blockedDays || DEFAULT_BLOCKED);
+  if (r.moved.length) { m.steps = r.steps; await save(m); }
+  return r.moved;
 }
 const save = m => { const { id, deadlineDone, ...data } = m; return store.put(APP, id, data); };
 
@@ -136,6 +153,8 @@ async function renderDetail(id) {
   const raw = await store.get(APP, id);
   if (!raw) { ctx0.toast("That milestone isn't here anymore."); return renderList(); }
   const m = await followDeadline({ id, ...raw });
+  const movedOff = await followBreaks(m, await loadBreaks());
+  if (movedOff.length) ctx0.toast(`Moved ${movedOff.length === 1 ? "a step" : `${movedOff.length} steps`} off ${[...new Set(movedOff.map(x => x.label))].join(" and ")}.`);
   if (current !== id) { sel = null; openDoc = null; expanded = false; addOpen = false; }
   current = id;
   $("#ms-title").textContent = "";
@@ -166,7 +185,7 @@ async function renderDetail(id) {
     const ask = (s.kind === "study" || s.kind === "quiz") && s.done && !s.rating;
     const rated = s.rating ? `<button class="ms-tag ${s.rating === "good" ? "green" : "warm"}" data-act="rate-clear" title="Change how it went">${s.rating === "good" ? "got it" : "shaky"}</button>` : "";
     const hasAtt = onStep(s.id).length + docsOn(s.id).length > 0;
-    const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}</span>`;
+    const when = s.done ? "" : `<span class="ms-when${late ? " late" : ""}">${esc(dayLabel(s.date))}<span class="ms-len"> · ${esc(lenLabel(s.estMin || 45))}</span>${late ? " · late" : ""}${s.offBreak ? `<span class="ms-moved"> · moved off ${esc(s.offBreak)}</span>` : ""}</span>`;
     return `<div class="ms-step ${s.done ? "done" : ""} ${ask ? "ask" : ""} ${isSel ? "sel" : ""}" data-sid="${s.id}">
       <button class="ms-chk" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">${svg(s.done ? "circleCheck" : "circle")}</button>
       <div class="grow"><span class="ms-ttl">${esc(s.title)}</span>${when}
@@ -199,6 +218,7 @@ async function renderDetail(id) {
       <div class="ms-meter"><div class="ms-bar"><i style="width:${p.pct}%"></i></div><span>${p.d} of ${p.n} steps</span></div>
     </div>
     ${m.deadlineDone && p.d < p.n ? `<div class="ms-banner"><span class="grow"><b>You checked off the deadline</b><span>The steps left won't remind you anymore.</span></span><button class="ms-ob sm" data-act="finish">Mark all done</button></div>` : ""}
+    ${m.template === "exam" ? `<div id="ms-need" hidden></div>` : ""}
     <div class="ms-cols"><div class="ms-left">
       <div class="ms-lab">Steps</div>
       <div class="ms-list ${addOpen ? "adding" : ""}" id="ms-steps">
@@ -213,6 +233,26 @@ async function renderDetail(id) {
   // keep the keyboard on the "Add a step" box (and don't scroll for it) so adding several steps in a row stays smooth
   if (addOpen) { addOpen = false; $("#ms-addstep input")?.focus({ preventScroll: true }); }
   drawWorkspace();
+  if (m.template === "exam") drawNeed(m);
+}
+
+/* ---------- exam: the score you need on it, from Grades ---------- */
+const needPct = x => `${Math.round(x)}%`;
+async function drawNeed(m) {
+  let r = null;
+  try { r = await (await import("../grades/grades.js")).examNeed({ course: m.course, title: m.title }); } catch (e) { r = null; }
+  const box = $("#ms-need"); if (!box || current !== m.id || !r) return;
+  const cell = L => {
+    const n = r.need[L]; if (!n) return "";
+    const v = n.kind === "need" ? needPct(n.x) : n.kind === "locked" ? "Locked in" : n.kind === "out" ? "Out of reach" : needPct(n.final);
+    const pts = n.kind === "need" && r.item ? `<span>${Math.round(n.x / 100 * r.item.outOf * 10) / 10} / ${r.item.outOf}</span>` : "";
+    return `<div class="ms-need-c ${n.kind}"><b>${L}</b><span class="v">${v}</span>${pts}</div>`;
+  };
+  box.className = "ms-need"; box.hidden = false;
+  box.innerHTML = `<div class="ms-need-h"><span class="ms-lab">${r.item ? "What you need on this exam" : "What you need on what's left"}</span>
+      <a class="ms-dl" href="#grades/${encodeURIComponent(r.courseId)}">${esc(r.code)} grades</a></div>
+    <div class="ms-need-row">${["A", "B", "C"].map(cell).join("")}</div>
+    <p class="ms-need-n">${r.item ? `On ${esc(r.item.title)}, if you keep your current average on everything else.` : "No score for this exam in Grades yet, so this is the average you need on everything still to come."}</p>`;
 }
 
 /* ---------- workspace: notes and files for the whole project or the selected step ---------- */
@@ -234,7 +274,6 @@ function ago(t) {
 
 /** Plain text from markdown, for the short preview. */
 const plain = md => String(md || "").replace(/```[\s\S]*?```/g, " ").replace(/^\s*(#{1,6}|[-*+]|\d+[.)])\s+/gm, "").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim();
-const countQs = md => (String(md || "").match(/^\s*\d+[.)]\s+/gm) || []).length;
 function drawWorkspace() {
   const box = $("#ms-ws"); if (!box || !ws) return;
   const { id, m, att, docs } = ws;
@@ -247,13 +286,15 @@ function drawWorkspace() {
   const also = step ? [...docs.filter(d => !stepOf(d.owner)).map(d => d.title), ...att.filter(f => !stepOf(f.owner)).map(f => f.name)] : [];
   const steps = [...m.steps].sort((a, b) => a.date - b.date);
   const docRow = d => {
-    const guide = d.kind === "guide", qs = d.kind === "questions" ? countQs(d.body) : 0;
-    const meta = [guide ? "Study guide" : "Note", qs ? `${qs} question${qs === 1 ? "" : "s"}` : `edited ${ago(d.updated || d.created)}`].join(" · ");
+    const guide = d.kind === "guide", qm = d.kind === "questions" ? marksOf(d) : null, qs = qm ? qm.n : 0;
+    const meta = [guide ? "Study guide" : qm ? "Practice questions" : "Note", qs ? `${qs} question${qs === 1 ? "" : "s"}` : `edited ${ago(d.updated || d.created)}`,
+      qm && qm.good + qm.shaky ? `${qm.good} got it, ${qm.shaky} shaky` : ""].filter(Boolean).join(" · ");
     const excerpt = plain(d.body);
     return `<div class="ws-doc" data-did="${esc(d.id)}">
-      <button class="ws-row" data-act="ws-open"><span class="ws-ic ${guide ? "acc" : ""}">${svg(DOC_ICON[d.kind] || "fileText")}</span>
+      <div class="ws-docrow"><button class="ws-row" data-act="ws-open"><span class="ws-ic ${guide ? "acc" : ""}">${svg(DOC_ICON[d.kind] || "fileText")}</span>
         <span class="grow"><span class="t">${esc(d.title)}</span><span class="s">${esc(meta)}</span></span>
         ${guide ? `<span class="ms-tag blue">guide</span>` : ""}</button>
+        ${qs ? `<button class="ms-ob sm ws-practice" data-act="ws-practice">${svg("play")}Practice</button>` : ""}</div>
       ${guide && excerpt ? `<div class="ws-prev"><p>${esc(excerpt.length > 170 ? excerpt.slice(0, 170).replace(/\s+\S*$/, "") + "…" : excerpt)}</p><button class="ws-link" data-act="ws-open">Open full guide</button></div>` : ""}
     </div>`;
   };
@@ -294,16 +335,60 @@ function drawWorkspace() {
   if (!step) classNotesInto(box, m);
 }
 /** Read a note or guide in full; Edit and Copy from here. */
-function openReader(doc, { onEdit }) {
+function openReader(doc, { onEdit, onPractice }) {
   openViewer({
     title: doc.title, sub: `${KINDS[doc.kind] || "Note"} · edited ${ago(doc.updated || doc.created)}`,
     actions: [
+      ...(onPractice && doc.kind === "questions" && marksOf(doc).n ? [{ label: "Practice", icon: "play", run: ({ close }) => { close(); onPractice(); } }] : []),
       { label: "Copy text", icon: "copy", run: async () => ctx0.toast(await copyText(doc.body || "") ? "Copied" : "Couldn't copy. Select the text instead.") },
       { label: "Edit", icon: "pencilLine", run: ({ close }) => { close(); onEdit(); } },
       { label: "Open in Code", icon: "code", run: ({ close }) => { close(); location.hash = `code/doc:${encodeURIComponent(doc.id)}`; } },
     ],
     render(body) { body.innerHTML = `<article class="fv-doc ws-md">${renderMd(doc.body) || `<p class="ws-muted">Nothing written yet.</p>`}</article>`; },
   });
+}
+/** Practice a questions doc; the list redraws with the new marks when you close it.
+ *  Each question marked Shaky gets a short review step before the exam. */
+function practice(id, doc) {
+  const added = [];
+  openPractice(doc, {
+    toast: ctx0.toast,
+    onMark: async (q, mark) => {
+      if (mark !== "shaky") return;
+      const first = q.q.split("\n")[0].replace(/\*\*|`/g, "").trim();
+      const r = await addReview(id, { topic: first.length > 70 ? first.slice(0, 70).replace(/\s+\S*$/, "") + "…" : first, ref: `q:${doc.id}:${q.key}`, estMin: 15 });
+      if (r) added.push(r);
+    },
+    onClose: () => { if (current === id) renderDetail(id); if (added.length) reviewToast(id, added); },
+  });
+}
+
+/* ---------- shaky topics come back: a short review step before the exam ---------- */
+const topicKey = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** Add "Review: <topic>" unless an open review for the same step, question or topic is already there.
+ *  Returns { step, added } or null when the exam is too close for one. */
+async function addReview(id, { topic, ref, estMin = 20 }) {
+  let out = null;
+  await update(id, m => {
+    const same = m.steps.find(s => s.kind === "again" && !s.done && ((ref && s.ref === ref) || (topic && topicKey(s.topic) === topicKey(topic))));
+    if (same) { out = { step: same, added: false }; return m; }
+    if (m.due - Date.now() < 2 * 3600e3) return m;
+    const step = { id: "s" + uid(), title: `Review: ${topic}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin, done: false, kind: "again", topic, ...(ref ? { ref } : {}) };
+    out = { step, added: true };
+    return { ...m, steps: [...m.steps, step] };
+  });
+  return out;
+}
+function reviewToast(id, list) {
+  const added = list.filter(r => r.added);
+  if (!added.length) { ctx0.toast(list.length === 1 ? `“${list[0].step.title}” is already on your plan.` : "Reviews for those are already on your plan."); return; }
+  const msg = added.length === 1 ? `Added “${added[0].step.title}” for ${dueLabel(added[0].step.date)}.` : `Added ${added.length} review steps for what was shaky.`;
+  ctx0.toast(msg, { label: "Undo", run: async () => {
+    const t = document.querySelector(".toast"); if (t) t.hidden = true;
+    const ids = new Set(added.map(r => r.step.id));
+    await update(id, m => ({ ...m, steps: m.steps.filter(s => !ids.has(s.id)) }));
+    if (current === id) renderDetail(id);
+  } });
 }
 /** For the doc editor: builds the prompt for a guide or practice questions on this step. */
 const promptFor = sid => ws.m.template === "exam" ? kind => studyPrompt(ws.m, sid ? ws.m.steps.find(s => s.id === sid) : null, kind) : null;
@@ -330,6 +415,9 @@ async function openSheet({ edit, prefill = {} } = {}) {
   const startTpl = m.template || "custom";
   let template = startTpl, blocked = [...(m.blockedDays || DEFAULT_BLOCKED)];
   let mine = await loadTemplates();
+  const breaks = await loadBreaks();
+  /** A fresh plan, with steps that land on a break moved off it. */
+  const plan = (tpl, from, due, bl, o) => offBreaks(buildPlan(tpl, from, due, bl, o), from, due, breaks, bl).steps.sort((a, b) => a.date - b.date);
   const openCount = edit ? edit.steps.filter(s => !s.done).length : 0;
   const mineOf = k => mine.find(t => `u:${t.id}` === k);
   const back = document.createElement("div"); back.className = "ap-back";
@@ -396,7 +484,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
     const due = dueMs();
     if (!due) { box.innerHTML = `<div>Pick a due date to see the plan.</div>`; return; }
     if (due < Date.now()) { box.innerHTML = `<div>That due date has already passed.</div>`; return; }
-    const steps = buildPlan(template, Date.now(), due, blocked, opts());
+    const steps = plan(template, Date.now(), due, blocked, opts());
     box.innerHTML = steps.length ? steps.map(s => `<div><span>${esc(dueLabel(s.date))}</span>${esc(s.title)}</div>`).join("")
       : `<div>Write your steps above, one per line.</div>`;
   };
@@ -423,7 +511,7 @@ async function openSheet({ edit, prefill = {} } = {}) {
       if (due !== edit.due && due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
       if (swapping()) {
         if (due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
-        const fresh = buildPlan(template, Date.now(), due, blocked, opts());
+        const fresh = plan(template, Date.now(), due, blocked, opts());
         if (!fresh.length) { err.textContent = "Add at least one step."; return; }
         const own = mineOf(template), { templateName, ...rest } = edit;
         await save({ ...rest, title, course, due, blockedDays: blocked, template, ...(own ? { templateName: own.name } : {}),
@@ -431,12 +519,12 @@ async function openSheet({ edit, prefill = {} } = {}) {
         close(); renderDetail(edit.id); ctx0.toast(`Switched to ${own ? own.name : TEMPLATES[template]?.label || "your list"}: ${fresh.length} new step${fresh.length === 1 ? "" : "s"}.`); return;
       }
       const changed = due !== edit.due || blocked.join() !== (edit.blockedDays || []).join();
-      const steps = changed ? replan(edit.steps, Date.now(), due, blocked) : edit.steps;
+      const steps = changed ? offBreaks(replan(edit.steps, Date.now(), due, blocked), Date.now(), due, breaks, blocked).steps : edit.steps;
       await save({ ...edit, title, course, due, blockedDays: blocked, steps });
       close(); renderDetail(edit.id); return;
     }
     if (due < Date.now()) { err.textContent = "That due date has already passed. Pick a later one."; return; }
-    const steps = buildPlan(template, Date.now(), due, blocked, opts());
+    const steps = plan(template, Date.now(), due, blocked, opts());
     if (!steps.length) { err.textContent = "Add at least one step."; return; }
     const id = "m-" + uid();
     const own = mineOf(template);
@@ -608,9 +696,11 @@ async function mount(el, ctx) {
     if (act === "ws-all") { openDoc = null; selectStep(null); return; }
     if (act === "pick-doc") { openDoc = did; selectStep(sid); return; }
     if (act === "ws-open" && doc) {
-      openReader(doc, { onEdit: () => openDocEditor(root, doc, { toast: ctx0.toast, prompt: promptFor(String(doc.owner).split(":")[2] || null), onSave: () => renderDetail(id), onDelete: () => renderDetail(id) }) });
+      openReader(doc, { onEdit: () => openDocEditor(root, doc, { toast: ctx0.toast, prompt: promptFor(String(doc.owner).split(":")[2] || null), onSave: () => renderDetail(id), onDelete: () => renderDetail(id) }),
+        onPractice: () => practice(id, doc) });
       return;
     }
+    if (act === "ws-practice" && doc) { practice(id, doc); return; }
     if (act === "more-steps") { expanded = !expanded; renderDetail(id); return; }
     if (act === "add-open") { addOpen = true; renderDetail(id); return; }
     if (act === "fmore") { e.target.closest(".ms-frow").classList.toggle("tools-on"); return; }
@@ -638,13 +728,12 @@ async function mount(el, ctx) {
       renderDetail(id);
     } else if (act === "rate-good" || act === "rate-shaky") {
       const shaky = act === "rate-shaky";
-      const m = await update(id, m => {
-        const s = m.steps.find(x => x.id === sid); if (!s) return m;
-        const steps = m.steps.map(x => x.id === sid ? { ...x, rating: shaky ? "shaky" : "good" } : x);
-        if (shaky) steps.push({ id: "s" + uid(), title: `Review again: ${s.topic || s.title.replace(/^(Quiz yourself|Study):\s*/, "")}`, date: shakyReviewDate(m.steps, Date.now(), m.due), estMin: 45, done: false, kind: "again", topic: s.topic });
-        return { ...m, steps };
-      });
-      if (shaky && m) { const a = m.steps[m.steps.length - 1]; ctx0.toast(`Added “${a.title}” for ${dueLabel(a.date)}.`); }
+      const m = await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, rating: shaky ? "shaky" : "good" } : x) }));
+      const s = m && m.steps.find(x => x.id === sid);
+      if (shaky && s) {
+        const r = await addReview(id, { topic: s.topic || s.title.replace(/^(Quiz yourself|Study):\s*/, ""), ref: `step:${s.id}` });
+        if (r) reviewToast(id, [r]);
+      }
       renderDetail(id);
     } else if (act === "rmstep") {
       await update(id, m => ({ ...m, steps: m.steps.filter(s => s.id !== sid) }));
@@ -662,7 +751,8 @@ async function mount(el, ctx) {
       const done = async () => {
         if (saved) return; saved = true;
         const t = inp.value ? new Date(inp.value).getTime() : s.date;
-        if (t !== s.date) await update(id, m => ({ ...m, steps: m.steps.map(x => x.id === sid ? { ...x, date: Math.min(t, m.due) } : x) }));
+        // a date you pick yourself stays put, even on a break
+        if (t !== s.date) await update(id, m => ({ ...m, steps: m.steps.map(x => { if (x.id !== sid) return x; const { offBreak, ...rest } = x; return { ...rest, date: Math.min(t, m.due), pinned: true }; }) }));
         renderDetail(id);
       };
       inp.addEventListener("change", done); inp.addEventListener("blur", done);
