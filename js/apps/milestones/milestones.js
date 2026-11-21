@@ -174,6 +174,7 @@ async function renderDetail(id) {
       <span class="ms-tools">${tool("rename", "pencilLine", "Rename")}${tool("date", "calendar", "Change date")}${tool("est", "clock", "How long it takes")}${tool("rmstep", "trash2", "Remove step")}</span>
     </div>`;
   };
+  const keepTop = $("#ms-main").scrollTop;
   $("#ms-main").innerHTML = `
     <div class="ms-page">
     <div class="ms-head">
@@ -207,7 +208,9 @@ async function renderDetail(id) {
     </div><aside class="ms-ws" id="ms-ws" aria-label="Workspace"></aside></div>
     </div>
     <div class="ms-drophint" id="ms-drophint" aria-hidden="true"></div>`;
-  if (addOpen) $("#ms-addstep input")?.focus();
+  $("#ms-main").scrollTop = keepTop;
+  // keep the keyboard on the "Add a step" box (and don't scroll for it) so adding several steps in a row stays smooth
+  if (addOpen) { addOpen = false; $("#ms-addstep input")?.focus({ preventScroll: true }); }
   drawWorkspace();
 }
 
@@ -734,7 +737,7 @@ async function mount(el, ctx) {
       when = Math.min(date, m.due);
       return { ...m, steps: [...m.steps, { id: "s" + uid(), title, date: when, estMin: 45, done: false }] };
     });
-    addOpen = false; renderDetail(id);
+    addOpen = true; renderDetail(id);
     if (when) ctx0.toast(`Added for ${dueLabel(when)}. Use its calendar icon to move it.`);
   });
   const refreshFileLines = async () => {

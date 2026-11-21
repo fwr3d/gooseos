@@ -276,10 +276,8 @@ button.ms-card:hover{background:var(--accent-soft)}
 .ms-morerow:hover{background:var(--surface-2)}
 .ms-morerow .ic{width:16px;height:16px}
 .ms-morerow .ic.up{transform:rotate(180deg)}
-/* add-a-step row: opened from the menu, or on hover with a mouse */
-.ms-list .ms-addstep{display:none}
-.ms-list.adding .ms-addstep{display:flex}
-@media (hover:hover){.ms-list:hover .ms-addstep,.ms-list:focus-within .ms-addstep{display:flex}}
+/* add-a-step row: always there, so the list never grows or shrinks as the pointer moves over it */
+.ms-list .ms-addstep{display:flex}
 
 /* workspace */
 .ws-head .ms-lab{margin:0}
