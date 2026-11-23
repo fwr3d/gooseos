@@ -5,7 +5,9 @@
 //   { title, course, template, due (ms), deadlineKey?, blockedDays: [0-6], steps: [{ id, title, date (ms), estMin, done, kind?, topic?, rating? }], created }
 //   Exam steps carry kind ("study" | "review"). Older plans may have "gather" | "first" | "quiz" | "practice" |
 //   "mistakes" | "cheat" | "night" | "again"; a finished "quiz" step there asks Got it / Shaky (rating "good" | "shaky").
-//   A Shaky study step or practice question adds one "again" step, { kind: "again", topic, ref: "step:<id>" | "q:<doc id>:<question key>" }.
+//   A Shaky study step adds one "again" step, { kind: "again", topic, ref: "step:<id>" }.
+//   Shaky practice questions share one "again" step per questions doc, { kind: "again", topic, ref: "qs:<doc id>", keys: [question keys] }.
+//   (Older plans may have one step per question, ref "q:<doc id>:<key>"; those get folded into the shared step.)
 //   A step that sat on a Schedule break and was moved has offBreak: "<break name>"; one you dated yourself has pinned: true and isn't moved.
 // Each unfinished step is shared with Reminders and Today through agenda().
 import * as store from "../../store.js";
@@ -163,6 +165,7 @@ async function renderDetail(id) {
   const linked = m.deadlineKey ? await store.get("deadlines", m.deadlineKey.replace(/^deadlines:/, "")) : null;
   const att = await files.list({ owner: ownerOf(id) }).catch(() => []);
   const docs = await listDocs(ownerOf(id)).catch(() => []);
+  if (await foldQuestionReviews(id, m, docs)) return renderDetail(id);
   if (sel && !m.steps.some(s => s.id === sel)) sel = null;
   ws = { id, m, att, docs };
   const onStep = sid => att.filter(f => f.owner === ownerOf(id, sid));
@@ -242,17 +245,21 @@ async function drawNeed(m) {
   let r = null;
   try { r = await (await import("../grades/grades.js")).examNeed({ course: m.course, title: m.title }); } catch (e) { r = null; }
   const box = $("#ms-need"); if (!box || current !== m.id || !r) return;
-  const cell = L => {
-    const n = r.need[L]; if (!n) return "";
-    const v = n.kind === "need" ? needPct(n.x) : n.kind === "locked" ? "Locked in" : n.kind === "out" ? "Out of reach" : needPct(n.final);
-    const pts = n.kind === "need" && r.item ? `<span>${Math.round(n.x / 100 * r.item.outOf * 10) / 10} / ${r.item.outOf}</span>` : "";
-    return `<div class="ms-need-c ${n.kind}"><b>${L}</b><span class="v">${v}</span>${pts}</div>`;
-  };
-  box.className = "ms-need"; box.hidden = false;
-  box.innerHTML = `<div class="ms-need-h"><span class="ms-lab">${r.item ? "What you need on this exam" : "What you need on what's left"}</span>
-      <a class="ms-dl" href="#grades/${encodeURIComponent(r.courseId)}">${esc(r.code)} grades</a></div>
-    <div class="ms-need-row">${["A", "B", "C"].map(cell).join("")}</div>
-    <p class="ms-need-n">${r.item ? `On ${esc(r.item.title)}, if you keep your current average on everything else.` : "No score for this exam in Grades yet, so this is the average you need on everything still to come."}</p>`;
+  const link = `<a class="ms-dl" href="#grades/${encodeURIComponent(r.courseId)}">${esc(r.code)} grades</a>`;
+  box.className = "ms-need"; box.hidden = false; box.title = "";
+  if (r.need.A && r.need.A.kind === "done") {   // nothing in Grades is still to come
+    box.innerHTML = `<p class="ms-need-n">${esc(r.code)} is at ${needPct(r.need.A.final)} with nothing left to come in Grades. Add this exam there with no score to see what you need on it.</p>${link}`;
+    return;
+  }
+  const txt = n => !n ? "" : n.kind === "need" ? needPct(n.x) : n.kind === "locked" ? "locked in" : n.kind === "out" ? "out of reach" : "";
+  // letters that need the same thing share one entry: "A–B 81%"
+  const parts = [];
+  for (const L of ["A", "B", "C"]) { const t = txt(r.need[L]), last = parts[parts.length - 1]; if (last && last.t === t) last.Ls.push(L); else parts.push({ Ls: [L], t }); }
+  const cls = t => t === "locked in" ? "locked" : t === "out of reach" ? "out" : "";
+  box.innerHTML = `<span class="ms-lab">${r.item ? "Need on this exam" : "Average needed on what's left"}</span>
+    <span class="ms-need-v">${parts.map(p => `<span class="${cls(p.t)}"><b>${p.Ls.length > 1 ? `${p.Ls[0]}–${p.Ls[p.Ls.length - 1]}` : p.Ls[0]}</b> ${p.t}</span>`).join("")}</span>
+    ${link}`;
+  box.title = r.item ? `On ${r.item.title}, if you keep your current average on everything else.` : "This exam isn't in Grades yet, so this is the average you need on everything still to come.";
 }
 
 /* ---------- workspace: notes and files for the whole project or the selected step ---------- */
@@ -311,6 +318,7 @@ function drawWorkspace() {
       </span>
       <button class="ms-tool ws-fmore" data-act="fmore" aria-label="Options for ${esc(f.name)}">${svg("ellipsis")}</button>
     </div>`;
+  const qRev = step && /^qs:/.test(step.ref || "") ? docs.find(d => d.id === step.ref.slice(3)) : null;
   const days = Math.max(0, Math.ceil((m.due - Date.now()) / 864e5));
   const promptSub = [m.course, step ? step.topic || step.title : m.title, step && step.rating === "shaky" ? "rated shaky" : "",
     `${m.template === "exam" ? "exam" : "due"} ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`].filter(Boolean).join(" · ");
@@ -326,6 +334,9 @@ function drawWorkspace() {
       <span class="grow"><b>Study prompt</b><span>${esc(promptSub)}</span></span>
       <button class="ms-ob sm ws-copy" data-act="ws-copy">${svg("copy")}Copy prompt</button>
     </div>` : ""}
+    ${qRev ? `<div class="ws-doc ws-qrev" data-did="${esc(qRev.id)}"><div class="ws-docrow"><span class="ws-row"><span class="ws-ic">${svg("circleHelp")}</span>
+      <span class="grow"><span class="t">${esc(qRev.title)}</span><span class="s">${esc(`${(step.keys || []).length} marked shaky`)}</span></span></span>
+      <button class="ms-ob sm ws-practice" data-act="ws-practice-shaky">${svg("play")}Practice these</button></div></div>` : ""}
     <div class="ws-list">
       ${myDocs.map(docRow).join("")}${myFiles.map(fileRow).join("")}
       ${myDocs.length || myFiles.length ? "" : `<label class="ws-empty ws-dropzone">${svg("upload")}<b>Drop files here</b><span>Or <u>choose files</u>, or paste with Ctrl+V. Whole folders work too.${step ? "" : " A rubric goes on the submit step by itself."}</span><input type="file" class="ws-fpick2" multiple hidden></label>`}
@@ -349,18 +360,49 @@ function openReader(doc, { onEdit, onPractice }) {
 }
 /** Practice a questions doc; the list redraws with the new marks when you close it.
  *  Each question marked Shaky gets a short review step before the exam. */
-function practice(id, doc) {
-  const added = [];
+function practice(id, doc, { only } = {}) {
   openPractice(doc, {
-    toast: ctx0.toast,
-    onMark: async (q, mark) => {
-      if (mark !== "shaky") return;
-      const first = q.q.split("\n")[0].replace(/\*\*|`/g, "").trim();
-      const r = await addReview(id, { topic: first.length > 70 ? first.slice(0, 70).replace(/\s+\S*$/, "") + "…" : first, ref: `q:${doc.id}:${q.key}`, estMin: 15 });
-      if (r) added.push(r);
+    toast: ctx0.toast, only,
+    onClose: async () => {
+      const r = await syncQuestionReview(id, doc);
+      if (current === id) renderDetail(id);
+      if (r && r.added) reviewToast(id, [r]);
     },
-    onClose: () => { if (current === id) renderDetail(id); if (added.length) reviewToast(id, added); },
   });
+}
+const qReviewTitle = n => `Review ${n} shaky question${n === 1 ? "" : "s"}`;
+const qReviewMin = n => Math.min(60, 10 + 5 * n);
+const marksShakyKeys = doc => Object.entries(doc.marks || {}).filter(([, v]) => v === "shaky").map(([k]) => k);
+/** Keep one review step per questions doc in step with its Shaky marks: made when the first one goes shaky,
+ *  its count kept current, and gone once nothing is shaky (if it isn't done yet). Folds in older one-per-question steps. */
+async function syncQuestionReview(id, doc) {
+  const keys = marksShakyKeys(doc);
+  let out = null;
+  await update(id, m => {
+    const ref = `qs:${doc.id}`, old = s => !s.done && s.kind === "again" && String(s.ref || "").startsWith(`q:${doc.id}:`);
+    let steps = m.steps.filter(s => !old(s));
+    const cur = steps.find(s => s.ref === ref && !s.done);
+    if (!keys.length) { if (cur) steps = steps.filter(s => s !== cur); return { ...m, steps }; }
+    if (cur) {
+      const auto = /^Review \d+ shaky question/.test(cur.title);   // keep a title you renamed yourself
+      Object.assign(cur, { keys, estMin: qReviewMin(keys.length), ...(auto ? { title: qReviewTitle(keys.length) } : {}) });
+      out = { step: cur, added: false };
+    } else {
+      if (m.due - Date.now() < 2 * 3600e3) return { ...m, steps };
+      const step = { id: "s" + uid(), title: qReviewTitle(keys.length), date: shakyReviewDate(steps, Date.now(), m.due), estMin: qReviewMin(keys.length),
+        done: false, kind: "again", topic: doc.title || "practice questions", ref, keys };
+      steps = [...steps, step]; out = { step, added: true };
+    }
+    return { ...m, steps };
+  });
+  return out;
+}
+/** Older plans: fold one-review-per-question steps into the shared step. */
+async function foldQuestionReviews(id, m, docs) {
+  const ids = new Set(m.steps.filter(s => !s.done && s.kind === "again" && /^q:/.test(s.ref || "")).map(s => s.ref.split(":")[1]));
+  let did = false;
+  for (const x of ids) { const d = docs.find(y => y.id === x); if (d) { await syncQuestionReview(id, d); did = true; } }
+  return did;
 }
 
 /* ---------- shaky topics come back: a short review step before the exam ---------- */
@@ -701,6 +743,7 @@ async function mount(el, ctx) {
       return;
     }
     if (act === "ws-practice" && doc) { practice(id, doc); return; }
+    if (act === "ws-practice-shaky" && doc) { practice(id, doc, { only: marksShakyKeys(doc) }); return; }
     if (act === "more-steps") { expanded = !expanded; renderDetail(id); return; }
     if (act === "add-open") { addOpen = true; renderDetail(id); return; }
     if (act === "fmore") { e.target.closest(".ms-frow").classList.toggle("tools-on"); return; }

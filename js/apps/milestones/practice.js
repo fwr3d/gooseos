@@ -1,6 +1,6 @@
 // Practice: go through a questions doc one question at a time. Show the answer,
 // then mark it Got it or Shaky. Marks are saved on the doc (see workspace.js).
-//   openPractice(doc, { toast, onMark(question, mark), onClose })
+//   openPractice(doc, { toast, only: [question keys], onMark(question, mark), onClose })
 import { svg } from "../../icons.js";
 import { openViewer } from "../../viewer.js";
 import { parseQuestions, saveMarks, renderMd } from "./workspace.js";
@@ -13,11 +13,12 @@ export function marksOf(doc) {
   return { n: qs.length, good: qs.filter(q => marks[q.key] === "good").length, shaky: qs.filter(q => marks[q.key] === "shaky").length };
 }
 
-export function openPractice(doc, { toast, onMark, onClose } = {}) {
+export function openPractice(doc, { toast, only, onMark, onClose } = {}) {
   const all = parseQuestions(doc.body);
   if (!all.length) { if (toast) toast("No numbered questions in this doc yet."); return; }
   const marks = { ...(doc.marks || {}) };
-  let deck = all, i = 0, shown = false, body = null;
+  const pick = only && only.length ? all.filter(q => only.includes(q.key)) : [];
+  let deck = pick.length ? pick : all, i = 0, shown = false, body = null;
 
   const draw = () => {
     if (i >= deck.length) return drawEnd();
