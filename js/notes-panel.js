@@ -61,15 +61,19 @@ export async function loadNotes() {
  * panel: an empty <aside> for the panel · button: the toggle button (aria-pressed)
  * get(): this board/PDF's { doc, ref } · set(patch): save changes to it
  * key: localStorage key for the phone sheet height
+ * course(): the class code this board/PDF belongs to, if any. The list then shows only
+ *   that class's milestones, with a button to see every class.
  */
-export function notesPanel({ host, panel, button, get, set, key }) {
+const sameCourse = (a, b) => String(a || "").toUpperCase().replace(/\s+/g, "") === String(b || "").toUpperCase().replace(/\s+/g, "");
+export function notesPanel({ host, panel, button, get, set, key, course }) {
   loadCss();
-  let notes = null, list = false;
+  let notes = null, list = false, all = false, lastFor = null;
   panel.classList.add("np"); panel.hidden = true; panel.setAttribute("aria-label", "Notes");
   try { const h = localStorage.getItem(key); if (h) host.style.setProperty("--np-h", h); } catch (_) { /* ignore */ }
 
   async function paint() {
     const st = get() || {}, open = !!st.ref;
+    if (st !== lastFor) { lastFor = st; all = false; }   // another board or PDF: back to its own class
     host.classList.toggle("np-open", open); panel.hidden = !open;
     if (button) button.setAttribute("aria-pressed", String(open));
     if (!open) return;
@@ -96,18 +100,26 @@ export function notesPanel({ host, panel, button, get, set, key }) {
     }
     // every milestone that has docs, upcoming first, then the rest newest first
     const day = new Date().setHours(0, 0, 0, 0), groups = new Map();
-    for (const d of notes.docs) { if (!groups.has(d.mid)) groups.set(d.mid, []); groups.get(d.mid).push(d); }
+    const cls = course ? course() : "", only = cls && !all;
+    const others = cls ? notes.docs.filter(d => !sameCourse(d.ms.course, cls)).length : 0;
+    for (const d of notes.docs) {
+      if (only && !sameCourse(d.ms.course, cls)) continue;
+      if (!groups.has(d.mid)) groups.set(d.mid, []); groups.get(d.mid).push(d);
+    }
     const order = [...groups.keys()].sort((a, b) => {
       const A = notes.ms.get(a).due || 0, B = notes.ms.get(b).due || 0, ua = A >= day, ub = B >= day;
       return ua !== ub ? (ua ? -1 : 1) : ua ? A - B : B - A;
     });
     const row = d => `<button class="np-row ${d.id === st.doc ? "on" : ""}" data-doc="${esc(d.id)}">${svg(ICON[d.kind] || "fileText")}
       <span class="np-t"><b>${esc(d.title)}</b><span>${esc([d.kind === "file" ? "File" : KINDS[d.kind] || "Note", d.step].filter(Boolean).join(" · "))}</span></span></button>`;
-    panel.innerHTML = `${grab}<div class="np-h"><div class="np-t"><b>Notes</b><span>Study guides, questions and notes from your milestones</span></div>${close}</div>
+    const empty = only ? `No notes for ${esc(cls)} yet. Add a study guide, practice questions or note files to a ${esc(cls)} milestone and they'll show up here.`
+      : "No notes yet. Add a study guide or practice questions in a milestone's workspace and they'll show up here.";
+    const swap = !cls ? "" : only ? (others ? `<button class="np-all" data-np="all">Show every class</button>` : "") : `<button class="np-all" data-np="mine">Only ${esc(cls)}</button>`;
+    panel.innerHTML = `${grab}<div class="np-h"><div class="np-t"><b>${only ? `${esc(cls)} notes` : "Notes"}</b><span>${only ? "Study materials for this board's class" : "Study guides, questions and notes from your milestones"}</span></div>${close}</div>
       <div class="np-b">${order.length ? order.map(mid => {
         const m = notes.ms.get(mid), l = groups.get(mid).sort(byOrder);
-        return `<div class="np-g"><h5>${esc(m.title)}<small>${esc([m.course, m.due ? shortDate(m.due) : ""].filter(Boolean).join(" · "))}</small></h5>${l.map(row).join("")}</div>`;
-      }).join("") : `<p class="np-empty">No notes yet. Add a study guide or practice questions in a milestone's workspace and they'll show up here.</p>`}</div>`;
+        return `<div class="np-g"><h5>${esc(m.title)}<small>${esc([only ? "" : m.course, m.due ? shortDate(m.due) : ""].filter(Boolean).join(" · "))}</small></h5>${l.map(row).join("")}</div>`;
+      }).join("") : `<p class="np-empty">${empty}</p>`}${swap}</div>`;
   }
   async function toggle() { await set({ ref: !(get() || {}).ref }); paint(); }
   panel.addEventListener("click", async e => {
@@ -115,6 +127,7 @@ export function notesPanel({ host, panel, button, get, set, key }) {
     if (d) { list = false; await set({ doc: d.dataset.doc }); await paint(); const b = panel.querySelector(".np-b"); if (b) b.scrollTop = 0; return; }
     if (!a) return;
     if (a.dataset.np === "list") { list = true; paint(); }
+    if (a.dataset.np === "all" || a.dataset.np === "mine") { all = a.dataset.np === "all"; paint(); }
     if (a.dataset.np === "close") { await set({ ref: false }); paint(); }
   });
   // on a phone, drag the handle (or the header) to make the sheet taller or shorter

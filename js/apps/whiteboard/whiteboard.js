@@ -661,7 +661,7 @@ async function mount(el, ctx) {
     drawStyles();
   });
   $("#wb-undo").onclick = undo; $("#wb-redo").onclick = redo;
-  notes = notesPanel({ host: root, panel: $("#wb-np"), button: $("#wb-notes"), key: "wb-np-h",
+  notes = notesPanel({ host: root, panel: $("#wb-np"), button: $("#wb-notes"), key: "wb-np-h", course: () => board && board.course,
     get: () => board, set: async patch => { Object.assign(board, patch); if (!board.ref) delete board.ref; await ctx0.store.put(APP, board.id, dataOf(board)); } });
   $("#wb-notes").onclick = () => notes.toggle();
   $("#wb-zin").onclick = () => zoomAt(W / 2, H / 2, 1.25);

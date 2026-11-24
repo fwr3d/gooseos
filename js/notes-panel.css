@@ -33,3 +33,5 @@
   .np-btn{padding:6px 8px}
 }
 .np-pre{white-space:pre-wrap;font:13px/1.5 var(--f-mono,ui-monospace,monospace);margin:0}
+.np-all{display:block;margin:10px auto 4px;border:0;background:transparent;color:var(--accent);font:inherit;font-size:13px;padding:6px 10px;border-radius:8px;cursor:pointer}
+.np-all:hover{background:var(--accent-soft)}
