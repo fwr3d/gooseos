@@ -107,12 +107,37 @@ function resize() {
 function drawBg(c, v, w, h, bgCol, dotCol, bg) {
   c.fillStyle = bgCol; c.fillRect(0, 0, w, h);
   if (bg === "blank") return;
-  const step = 32 * v.z; if (step < 8) return;
-  const ox = ((v.x % step) + step) % step, oy = ((v.y % step) + step) % step;
-  c.fillStyle = dotCol; c.strokeStyle = dotCol; c.lineWidth = 1;
-  if (bg === "dots") { const r = Math.max(1, 1.3 * Math.min(v.z, 1.4)); for (let x = ox; x < w; x += step) for (let y = oy; y < h; y += step) { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); } }
-  else if (bg === "grid") { c.beginPath(); for (let x = ox; x < w; x += step) { c.moveTo(Math.round(x) + .5, 0); c.lineTo(Math.round(x) + .5, h); } for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + .5); c.lineTo(w, Math.round(y) + .5); } c.stroke(); }
-  else if (bg === "lines") { c.beginPath(); for (let y = oy; y < h; y += step) { c.moveTo(0, Math.round(y) + .5); c.lineTo(w, Math.round(y) + .5); } c.stroke(); }
+  // graph paper: a stronger line (or dot) every 4 squares. Zoomed out, the squares merge 4 into 1
+  // and the fine ones fade in and out instead of popping, so the board never goes bare.
+  const major = css("--board-major") || dotCol;
+  let step = 32 * v.z;
+  while (step < 12) step *= 4;
+  const fade = Math.min(1, (step - 12) / 18);   // 0 right as the fine squares would get too tight
+  const big = step * 4;
+  const mod = (a, n) => ((a % n) + n) % n;
+  const ox = mod(v.x, step), oy = mod(v.y, step);
+  const isMajor = (p, o) => Math.abs(mod(p - o, big)) < 0.5 || Math.abs(mod(p - o, big) - big) < 0.5;
+  const lines = (vert, horiz) => {
+    const minor = new Path2D(), maj = new Path2D();
+    if (vert) for (let x = ox; x < w; x += step) { const p = isMajor(x, v.x) ? maj : minor, X = Math.round(x) + .5; p.moveTo(X, 0); p.lineTo(X, h); }
+    if (horiz) for (let y = oy; y < h; y += step) { const p = isMajor(y, v.y) ? maj : minor, Y = Math.round(y) + .5; p.moveTo(0, Y); p.lineTo(w, Y); }
+    c.lineWidth = 1;
+    c.globalAlpha = fade; c.strokeStyle = dotCol; c.stroke(minor);
+    c.globalAlpha = 1; c.strokeStyle = major; c.stroke(maj);
+  };
+  if (bg === "dots") {
+    const r = Math.max(.9, Math.min(1.5, 1.1 * v.z));
+    const fine = new Path2D(), heavy = new Path2D();
+    for (let x = ox; x < w; x += step) for (let y = oy; y < h; y += step) {
+      const hv = isMajor(x, v.x) && isMajor(y, v.y), p = hv ? heavy : fine, rr = hv ? r * 1.5 : r;
+      p.moveTo(x + rr, y); p.arc(x, y, rr, 0, 7);
+    }
+    c.fillStyle = major;
+    c.globalAlpha = .45 + .55 * fade; c.fill(fine);
+    c.globalAlpha = 1; c.fill(heavy);
+  } else if (bg === "grid") lines(true, true);
+  else if (bg === "lines") lines(false, true);
+  c.globalAlpha = 1;
 }
 const DASH = (d, w) => d === 1 ? [w * 3 + 4, w * 2.5 + 4] : d === 2 ? [0.01, w * 2.2 + 3] : [];
 const endsOf = s => s.e ?? (s.t === "arrow" ? 1 : 0);
