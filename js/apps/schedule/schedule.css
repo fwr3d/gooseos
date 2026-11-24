@@ -50,3 +50,7 @@
 .w-sc b{font-size:15px;font-weight:var(--w-strong);display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .w-sc b::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}
 .w-sc>span:last-child{font-size:12px;color:var(--on-wall-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* course row: the pencil edits, the rest opens the class sheet */
+.sc-edit{display:grid;place-items:center;width:34px;height:34px;margin:-6px -8px -6px 0;border-radius:8px;color:var(--muted);flex:none}
+.sc-edit:hover{background:var(--surface-2);color:var(--ink)}
+.sc-edit .ic{width:16px;height:16px}

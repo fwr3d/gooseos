@@ -232,7 +232,7 @@ async function renderNow() {
       <span class="ap-swatch" style="background:${colorOf(c)};width:12px;height:12px"></span>
       <span class="grow"><span class="t">${esc(c.code)}${c.name ? ` <span class="sc-kind">${esc(c.name)}</span>` : ""}</span>
       <span class="s">${(c.meetings || []).map(m => `${esc(KINDS[m.kind] || "Class")} ${daysLabel(m.days)} ${fmtTime(m.start)}`).join(" · ") || "No meetings yet"}</span></span>
-      ${svg("pencil")}</button>`).join("");
+      <span class="sc-edit" data-edit="${c.id}" role="button" aria-label="Edit ${esc(c.code)}" title="Edit">${svg("pencil")}</span></button>`).join("");
 
   const breaks = (sem.breaks || []).length;
   const semText = sem.start && sem.end ? `${shortDate(sem.start)} – ${shortDate(sem.end)}${breaks ? ` · ${breaks} break${breaks === 1 ? "" : "s"}` : ""}` : "Not set. Add the first and last day so the widget goes quiet on days off.";
@@ -408,9 +408,11 @@ async function mount(el, ctx) {
   });
   $("#sc-new").onclick = () => openCourse(null);
   el.addEventListener("click", async e => {
+    // the pencil edits the class; anywhere else on a class opens its sheet (room, what's due, the plan)
+    const ed = e.target.closest("[data-edit]");
+    if (ed) { const c = (await loadCourses()).find(x => x.id === ed.dataset.edit); if (c) openCourse(c); return; }
     const b = e.target.closest("[data-course]"); if (!b) return;
-    const c = (await loadCourses()).find(x => x.id === b.dataset.course);
-    if (c) openCourse(c);
+    import("./class.js").then(m => m.openClassSheet(root, b.dataset.course, { toast: ctx0.toast }));
   });
   store.onChange(ch => { if ((ch.app === COURSES || ch.app === APP) && ctx0.isActive()) render(); });
   await render();
