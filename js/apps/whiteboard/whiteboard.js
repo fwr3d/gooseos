@@ -41,7 +41,10 @@ let tool = "pen", color = "ink", hlColor = "#ffe45c", size = 4;
 let cv, cx, stage, W = 0, H = 0, dpr = 1;
 let live = null, raf = 0, textBox = null;
 let saveT = null;
-let sel = null, editing = null, symBar = null;   // the selected stroke, and the text being retyped
+let sel = null, editing = null, symBar = null;   // the selected stroke (when exactly one is), and the text being retyped
+let picked = [];      // everything selected (Select tool): tap, Shift+tap, or drag a box around things
+let marquee = null;   // the box being dragged, in board units: { x0, y0, x1, y1, base }
+let clip = null, pastes = 0;   // Ctrl+C / Ctrl+V
 const ends = { line: 0, arrow: 1 };
 let dash = 0;
 let notes = null;  // the notes panel
@@ -88,12 +91,12 @@ function renderBar() {
   updateUndo(); updateZoom();
   if (notes) notes.paint();
 }
-function switchTo(b) { commitText(); sel = null; board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
+function switchTo(b) { commitText(); sel = null; picked = []; board = b; undoStack = []; redoStack = []; loadView(); renderBar(); redraw(); }
 
 /* ---------- undo ---------- */
 function snapshot() { undoStack.push(JSON.stringify(board.strokes)); if (undoStack.length > 60) undoStack.shift(); redoStack = []; updateUndo(); }
-function undo() { if (!undoStack.length) return; commitText(); redoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(undoStack.pop()); sel = null; drawStyles(); redraw(); save(); updateUndo(); }
-function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(redoStack.pop()); sel = null; drawStyles(); redraw(); save(); updateUndo(); }
+function undo() { if (!undoStack.length) return; commitText(); redoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(undoStack.pop()); sel = null; picked = []; drawStyles(); redraw(); save(); updateUndo(); }
+function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(board.strokes)); board.strokes = JSON.parse(redoStack.pop()); sel = null; picked = []; drawStyles(); redraw(); save(); updateUndo(); }
 function updateUndo() { $("#wb-undo").disabled = !undoStack.length; $("#wb-redo").disabled = !redoStack.length; }
 
 /* ---------- drawing ---------- */
@@ -181,7 +184,8 @@ function redraw() {
   cx.setTransform(dpr * view.z, 0, 0, dpr * view.z, dpr * view.x, dpr * view.y);
   for (const s of board.strokes) if (s !== editing) drawStroke(cx, s, ink);
   if (live) drawStroke(cx, live, ink);
-  if (sel && sel !== editing && board.strokes.includes(sel)) drawSel(cx);
+  if (picks().length && !(sel && sel === editing)) drawSel(cx);
+  if (marquee) drawMarquee(cx);
   $("#wb-hint").hidden = board.strokes.length > 0 || !!live;
 }
 // selection: a dashed box, plus handles on the ends of a line or the corners of a shape
@@ -192,13 +196,76 @@ function handlesOf(s) {
   return [];
 }
 function drawSel(c) {
-  const bb = boundsOf([sel]); if (!bb) return;
-  const px = 1 / view.z, pad = 6 * px;
+  const list = picks(); if (!list.length) return;
+  const bb = boundsOf(list); if (!bb) return;
+  const px = 1 / view.z, pad = 6 * px, one = list.length === 1 ? list[0] : null;
   c.save(); c.strokeStyle = css("--accent") || "#2f5bea"; c.lineWidth = 1.5 * px; c.globalAlpha = 1;
-  if (sel.t !== "line" && sel.t !== "arrow") { c.setLineDash([5 * px, 4 * px]); c.strokeRect(bb.x - pad, bb.y - pad, bb.w + pad * 2, bb.h + pad * 2); c.setLineDash([]); }
+  if (!one) {   // a group: each item lightly outlined inside the box
+    c.globalAlpha = .35; c.lineWidth = px;
+    for (const s of list) { const b = boundsOf([s]); if (b) c.strokeRect(b.x, b.y, b.w, b.h); }
+    c.globalAlpha = 1; c.lineWidth = 1.5 * px;
+  }
+  if (!one || (one.t !== "line" && one.t !== "arrow")) { c.setLineDash([5 * px, 4 * px]); c.strokeRect(bb.x - pad, bb.y - pad, bb.w + pad * 2, bb.h + pad * 2); c.setLineDash([]); }
   c.fillStyle = css("--panel") || "#fff";
-  for (const [x, y] of handlesOf(sel)) { c.beginPath(); c.arc(x, y, 6 * px, 0, 7); c.fill(); c.stroke(); }
+  if (one) for (const [x, y] of handlesOf(one)) { c.beginPath(); c.arc(x, y, 6 * px, 0, 7); c.fill(); c.stroke(); }
+  const sh = scaleHandle();
+  if (sh) { const r = 5.5 * px; c.beginPath(); c.rect(sh.x - r, sh.y - r, r * 2, r * 2); c.fill(); c.stroke(); }
   c.restore();
+}
+function drawMarquee(c) {
+  const px = 1 / view.z, m = marquee, x = Math.min(m.x0, m.x1), y = Math.min(m.y0, m.y1), w = Math.abs(m.x1 - m.x0), h = Math.abs(m.y1 - m.y0);
+  c.save(); c.fillStyle = c.strokeStyle = css("--accent") || "#2f5bea";
+  c.globalAlpha = .08; c.fillRect(x, y, w, h);
+  c.globalAlpha = .9; c.lineWidth = px; c.setLineDash([4 * px, 3 * px]); c.strokeRect(x, y, w, h);
+  c.restore();
+}
+/* ---------- selection ---------- */
+const onBoard = s => !!board && board.strokes.includes(s);
+const picks = () => picked.filter(onBoard);
+function pick(list) { picked = list.filter(onBoard); sel = picked.length === 1 ? picked[0] : null; drawStyles(); req(); }
+/** The square corner handle that resizes the selection. Lines and shapes on their own use their own handles. */
+function scaleHandle() {
+  const l = picks(); if (!l.length || l.every(s => s.t === "text")) return null;
+  if (l.length === 1 && l[0].t !== "pen" && l[0].t !== "hl") return null;
+  const bb = boundsOf(l), pad = 6 / view.z;
+  return bb ? { x: bb.x + bb.w + pad, y: bb.y + bb.h + pad, bb } : null;
+}
+/** Everything the dragged box touches: inside it, or with a point inside it. */
+function finishMarquee() {
+  const m = marquee; marquee = null;
+  const x0 = Math.min(m.x0, m.x1), x1 = Math.max(m.x0, m.x1), y0 = Math.min(m.y0, m.y1), y1 = Math.max(m.y0, m.y1);
+  if ((x1 - x0) * view.z < 4 && (y1 - y0) * view.z < 4) { pick(m.base); return; }
+  const inside = s => {
+    const b = boundsOf([s]); if (b && b.x >= x0 && b.y >= y0 && b.x + b.w <= x1 && b.y + b.h <= y1) return true;
+    for (let i = 0; i < s.p.length; i += 2) if (s.p[i] >= x0 && s.p[i] <= x1 && s.p[i + 1] >= y0 && s.p[i + 1] <= y1) return true;
+    return false;
+  };
+  pick([...new Set([...m.base, ...board.strokes.filter(inside)])]);
+}
+const shift = (list, dx, dy) => { for (const s of list) for (let i = 0; i < s.p.length; i += 2) { s.p[i] = rnd(s.p[i] + dx); s.p[i + 1] = rnd(s.p[i + 1] + dy); } };
+function nudge(k, n) {
+  const d = n / view.z, dx = k === "arrowleft" ? -d : k === "arrowright" ? d : 0, dy = k === "arrowup" ? -d : k === "arrowdown" ? d : 0;
+  if (!dx && !dy) return;
+  snapshot(); shift(picks(), dx, dy); save(); req();
+}
+/** Paste a copy, a little down and right of the last one, and select it. */
+function pasteList(json) {
+  pastes++;
+  const l = JSON.parse(json), off = 16 * pastes / view.z;
+  shift(l, off, off);
+  snapshot(); board.strokes.push(...l); save();
+  if (tool !== "select") setTool("select");
+  pick(l);
+}
+/** Ctrl/Cmd + A, C, X, V, D. True when handled. */
+function editKeys(k, e) {
+  const l = picks();
+  if (k === "a") { e.preventDefault(); if (tool !== "select") setTool("select"); pick(board.strokes.slice()); return true; }
+  if (k === "c" && l.length) { e.preventDefault(); clip = JSON.stringify(l); pastes = 0; ctx0.toast(l.length === 1 ? "Copied" : `Copied ${l.length}`); return true; }
+  if (k === "x" && l.length) { e.preventDefault(); clip = JSON.stringify(l); pastes = 0; delSel(); return true; }
+  if (k === "v" && clip) { e.preventDefault(); pasteList(clip); return true; }
+  if (k === "d" && l.length) { e.preventDefault(); pastes = 0; pasteList(JSON.stringify(l)); return true; }
+  return false;
 }
 const req = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; redraw(); }); };
 
@@ -232,6 +299,10 @@ function hits(s, x, y, r) {
 /* ---------- pointer input ---------- */
 const pointers = new Map();
 let mode = null, start = null, pinch = null, erasedAny = false, spaceDown = false;
+// Once a stylus is used, fingers move and zoom the board instead of drawing (so a resting palm can't scribble).
+let penSeen = false;
+// a quick tap with two fingers undoes, with three redoes: { t, max, moved }
+let gest = null;
 function local(e) { const r = stage.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
 const coalesced = e => { const list = e.getCoalescedEvents ? e.getCoalescedEvents() : []; return list.length ? list : [e]; };
 function onDown(e) {
@@ -239,6 +310,11 @@ function onDown(e) {
   closeMenu();
   stage.setPointerCapture(e.pointerId);
   const [sx, sy] = local(e); pointers.set(e.pointerId, [sx, sy]);
+  if (e.pointerType === "pen" && !penSeen && lsGet("wb-pen") !== "1") { penSeen = lsGet("wb-fingers") !== "1"; lsSet("wb-pen", "1"); }
+  if (e.pointerType === "touch") {
+    if (pointers.size === 1 || !gest) gest = { t: Date.now(), max: 0, moved: false };
+    gest.max = Math.max(gest.max, pointers.size);
+  }
   if (pointers.size === 2) {
     live = null; mode = "pinch";
     const [a, b] = [...pointers.values()];
@@ -248,9 +324,10 @@ function onDown(e) {
   if (pointers.size > 2) return;
   commitText();
   const [wx, wy] = toWorld(sx, sy);
-  if (e.button === 1 || e.button === 2 || spaceDown || tool === "hand") { mode = "pan"; start = { sx, sy, vx: view.x, vy: view.y }; stage.classList.add("panning"); e.preventDefault(); return; }
+  if (e.button === 1 || e.button === 2 || spaceDown || tool === "hand" || (penSeen && e.pointerType === "touch")) { mode = "pan"; start = { sx, sy, vx: view.x, vy: view.y }; stage.classList.add("panning"); e.preventDefault(); return; }
+  if (e.pointerType === "pen" && (e.buttons & 32)) { mode = "erase"; erasedAny = false; eraseAt(wx, wy); return; }   // the pen's eraser end
   if (tool === "text") { const t = topHit(wx, wy, x => x.t === "text"); if (t) editText(t); else openText(sx, sy, wx, wy); mode = null; return; }
-  if (tool === "select") { selDown(sx, sy, wx, wy); return; }
+  if (tool === "select") { selDown(sx, sy, wx, wy, e); return; }
   if (tool === "eraser") { mode = "erase"; erasedAny = false; eraseAt(wx, wy); return; }
   mode = "draw";
   if (tool === "pen" || tool === "hl") live = { t: tool, c: tool === "hl" ? hlColor : color, w: size, p: [rnd(wx), rnd(wy)] };
@@ -265,19 +342,29 @@ function onMove(e) {
   if (mode === "pinch" && pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a[0] - b[0], a[1] - b[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    if (gest && (Math.abs(d - pinch.d) > 10 || Math.hypot(mx - pinch.cx, my - pinch.cy) > 10)) gest.moved = true;
     const z = clampZ(pinch.v.z * d / pinch.d), wx = (pinch.cx - pinch.v.x) / pinch.v.z, wy = (pinch.cy - pinch.v.y) / pinch.v.z;
     view = { x: mx - wx * z, y: my - wy * z, z }; updateZoom(); req(); return;
   }
   if (mode === "pan") { view.x = start.vx + (sx - start.sx); view.y = start.vy + (sy - start.sy); req(); return; }
   if (mode === "erase") { for (const ce of coalesced(e)) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); eraseAt(x, y); } return; }
-  if ((mode === "move" || mode === "handle") && sel) {
+  if ((mode === "move" || mode === "handle" || mode === "scale") && start) {
     if (!start.moved) { if (Math.hypot(sx - start.sx, sy - start.sy) < 3) return; snapshot(); start.moved = true; }
-    const [x, y] = toWorld(sx, sy), p = sel.p, o = start.orig;
-    if (mode === "move") { const dx = x - start.wx, dy = y - start.wy; for (let i = 0; i < p.length; i += 2) { p[i] = rnd(o[i] + dx); p[i + 1] = rnd(o[i + 1] + dy); } }
-    else if (sel.t === "line" || sel.t === "arrow") { p[start.i * 2] = rnd(x); p[start.i * 2 + 1] = rnd(y); }
-    else { const i = start.i; if (i === 0 || i === 3) p[0] = rnd(x); else p[2] = rnd(x); if (i < 2) p[1] = rnd(y); else p[3] = rnd(y); }
+    const [x, y] = toWorld(sx, sy);
+    if (mode === "move") {
+      const dx = x - start.wx, dy = y - start.wy;
+      start.list.forEach((s, k) => { const o = start.origs[k]; for (let i = 0; i < s.p.length; i += 2) { s.p[i] = rnd(o[i] + dx); s.p[i + 1] = rnd(o[i + 1] + dy); } });
+    } else if (mode === "scale") {   // grow or shrink from the top-left corner, same shape
+      const b = start.bb, f = Math.max(0.05, ((x - b.x) + (y - b.y)) / ((start.wx - b.x) + (start.wy - b.y) || 1));
+      start.list.forEach((s, k) => { const o = start.origs[k]; for (let i = 0; i < s.p.length; i += 2) { s.p[i] = rnd(b.x + (o[i] - b.x) * f); s.p[i + 1] = rnd(b.y + (o[i + 1] - b.y) * f); } });
+    } else if (sel) {
+      const p = sel.p;
+      if (sel.t === "line" || sel.t === "arrow") { p[start.i * 2] = rnd(x); p[start.i * 2 + 1] = rnd(y); }
+      else { const i = start.i; if (i === 0 || i === 3) p[0] = rnd(x); else p[2] = rnd(x); if (i < 2) p[1] = rnd(y); else p[3] = rnd(y); }
+    }
     req(); return;
   }
+  if (mode === "marquee" && marquee) { const [x, y] = toWorld(sx, sy); marquee.x1 = x; marquee.y1 = y; req(); return; }
   if (mode === "draw" && live) {
     if (live.t === "pen" || live.t === "hl") {
       for (const ce of coalesced(e)) { const [a, b] = local(ce); const [x, y] = toWorld(a, b); const p = live.p; if (Math.hypot(x - p[p.length - 2], y - p[p.length - 1]) * view.z > 1.5) p.push(rnd(x), rnd(y)); }
@@ -286,6 +373,9 @@ function onMove(e) {
       if (e.shiftKey) {
         if (live.t === "rect" || live.t === "ell") { const d = Math.max(Math.abs(x - p[0]), Math.abs(y - p[1])); x = p[0] + Math.sign(x - p[0] || 1) * d; y = p[1] + Math.sign(y - p[1] || 1) * d; }
         else { const a = Math.round(Math.atan2(y - p[1], x - p[0]) / (Math.PI / 4)) * (Math.PI / 4), r = Math.hypot(x - p[0], y - p[1]); x = p[0] + r * Math.cos(a); y = p[1] + r * Math.sin(a); }
+      } else if (live.t === "line" || live.t === "arrow") {
+        const a = Math.atan2(y - p[1], x - p[0]), a45 = Math.round(a / (Math.PI / 4)) * (Math.PI / 4);
+        if (Math.abs(a - a45) < 0.07) { const r = Math.hypot(x - p[0], y - p[1]); x = p[0] + r * Math.cos(a45); y = p[1] + r * Math.sin(a45); }
       }
       p[2] = rnd(x); p[3] = rnd(y);
     }
@@ -294,10 +384,15 @@ function onMove(e) {
 }
 function onUp(e) {
   if (!pointers.has(e.pointerId)) return; pointers.delete(e.pointerId);
+  if (gest && e.pointerType === "touch" && pointers.size === 0) {
+    const g = gest; gest = null;
+    if (!g.moved && g.max >= 2 && Date.now() - g.t < 350) { mode = null; live = null; marquee = null; if (g.max === 2) undo(); else redo(); req(); return; }
+  }
   if (mode === "pinch") { if (pointers.size === 0) { mode = null; saveView(); } return; }
   if (mode === "pan") { stage.classList.remove("panning"); mode = null; saveView(); return; }
   if (mode === "erase") { if (erasedAny) save(); mode = null; return; }
-  if (mode === "move" || mode === "handle") {
+  if (mode === "marquee") { if (marquee) finishMarquee(); mode = null; return; }
+  if (mode === "move" || mode === "handle" || mode === "scale") {
     if (start.moved) save();
     else if (mode === "move" && start.was && sel && sel.t === "text") editText(sel);   // tap a selected text again to retype it
     mode = null; return;
@@ -314,19 +409,28 @@ function topHit(x, y, ok = () => true) {
   for (let i = board.strokes.length - 1; i >= 0; i--) { const s = board.strokes[i]; if (ok(s) && hits(s, x, y, r)) return s; }
   return null;
 }
-function selDown(sx, sy, wx, wy) {
-  if (sel && board.strokes.includes(sel)) {
-    const r = 12 / view.z, i = handlesOf(sel).findIndex(([x, y]) => Math.hypot(x - wx, y - wy) < r);
-    if (i >= 0) { mode = "handle"; start = { i, sx, sy, orig: sel.p.slice(), moved: false }; return; }
+function selDown(sx, sy, wx, wy, e) {
+  const list = picks(), r = 12 / view.z;
+  if (sel) { const i = handlesOf(sel).findIndex(([x, y]) => Math.hypot(x - wx, y - wy) < r); if (i >= 0) { mode = "handle"; start = { i, sx, sy, moved: false }; return; } }
+  const sh = scaleHandle();
+  if (sh && Math.hypot(sh.x - wx, sh.y - wy) < r) { mode = "scale"; start = { sx, sy, wx: sh.x, wy: sh.y, bb: sh.bb, list, origs: list.map(s => s.p.slice()), moved: false }; return; }
+  const hit = topHit(wx, wy);
+  if (hit && e && e.shiftKey) { pick(list.includes(hit) ? list.filter(s => s !== hit) : [...list, hit]); mode = null; return; }
+  if (hit) {
+    const keep = list.includes(hit), group = keep ? list : [hit];
+    if (!keep) pick(group);
+    mode = "move"; start = { sx, sy, wx, wy, list: group, origs: group.map(s => s.p.slice()), moved: false, was: keep && group.length === 1 }; return;
   }
-  const hit = topHit(wx, wy), was = !!hit && hit === sel;
-  sel = hit; drawStyles(); req();
-  mode = hit ? "move" : null;
-  if (hit) start = { sx, sy, wx, wy, orig: hit.p.slice(), moved: false, was };
+  // inside a group's box (between its items) still drags the group
+  const bb = list.length > 1 ? boundsOf(list) : null;
+  if (bb && wx >= bb.x && wx <= bb.x + bb.w && wy >= bb.y && wy <= bb.y + bb.h) { mode = "move"; start = { sx, sy, wx, wy, list, origs: list.map(s => s.p.slice()), moved: false, was: false }; return; }
+  // empty space: drag a box to select what's inside (Shift adds to what's selected)
+  if (!(e && e.shiftKey)) pick([]);
+  mode = "marquee"; marquee = { x0: wx, y0: wy, x1: wx, y1: wy, base: e && e.shiftKey ? list : [] }; req();
 }
 function delSel() {
-  if (!sel) return;
-  snapshot(); board.strokes = board.strokes.filter(x => x !== sel); sel = null; save(); drawStyles(); req();
+  const l = picks(); if (!l.length) return;
+  snapshot(); board.strokes = board.strokes.filter(x => !l.includes(x)); save(); pick([]);
 }
 function eraseAt(x, y) {
   const r = 10 / view.z, before = board.strokes.length;
@@ -409,7 +513,7 @@ function openSyms(inp, sx, sy, fontPx, grow) {
   symBar = bar;
 }
 function editText(s) {
-  commitText(); sel = s;
+  commitText(); sel = s; picked = [s];
   openText(s.p[0] * view.z + view.x, s.p[1] * view.z + view.y, s.p[0], s.p[1], s);
 }
 function openText(sx, sy, wx, wy, old = null) {
@@ -435,7 +539,7 @@ function commitText() {
   if (tb.old) {   // retyped an existing text: empty deletes it
     const o = tb.old;
     if (board.strokes.includes(o)) {
-      if (!v) { snapshot(); board.strokes = board.strokes.filter(x => x !== o); if (sel === o) sel = null; save(); }
+      if (!v) { snapshot(); board.strokes = board.strokes.filter(x => x !== o); if (sel === o) { sel = null; picked = []; } save(); }
       else if (v !== o.s) { snapshot(); o.s = v; save(); }
     }
     drawStyles(); req(); return;
@@ -450,23 +554,27 @@ const ENDS = [[0, "No arrowheads", lineIc(0, 0)], [1, "Arrow at the end", lineIc
 const DASHES = [[0, "Solid", lineIc(0, 0)], [1, "Dashed", lineIc(0, 0, ` stroke-dasharray="4 3.5"`)], [2, "Dotted", lineIc(0, 0, ` stroke-dasharray="0.1 4"`)]];
 function drawStyles() {
   const el = $("#wb-styles"); if (!el) return;
-  const it = tool === "select" && sel && board && board.strokes.includes(sel) ? sel : null;
+  const list = tool === "select" && board ? picks() : [], it = list[0] || null;
   if (tool === "hand" || tool === "eraser" || (tool === "select" && !it)) { el.hidden = true; return; }
-  const t = it ? it.t : tool;
+  const same = f => list.every(x => f(x) === f(it)), types = new Set(list.map(x => x.t));
+  const only = arr => [...types].every(x => arr.includes(x));
+  const t = it ? (types.size === 1 ? it.t : only(["hl"]) ? "hl" : "pen") : tool;
   const cols = t === "hl" ? HL_COLORS : COLORS;
-  const curC = it ? it.c : t === "hl" ? hlColor : color, curW = it ? it.w : size;
-  const curE = it ? endsOf(it) : ends[t], curD = it ? (it.d || 0) : dash;
+  const curC = it ? (same(x => x.c) ? it.c : null) : t === "hl" ? hlColor : color, curW = it ? (same(x => x.w) ? it.w : null) : size;
+  const curE = it ? (same(endsOf) ? endsOf(it) : null) : ends[t], curD = it ? (same(x => x.d || 0) ? (it.d || 0) : null) : dash;
+  const showEnds = it ? only(["line", "arrow"]) : t === "line" || t === "arrow";
+  const showDash = it ? only(["pen", "line", "arrow", "rect", "ell"]) : ["pen", "line", "arrow", "rect", "ell"].includes(t);
   const sep = `<span class="wb-sep"></span>`;
   let h = cols.map(c => `<button class="wb-sw" data-color="${c}" aria-label="Color ${c === "ink" ? "black" : c}" aria-pressed="${c === curC}" style="background:${c === "ink" ? "var(--ink)" : c}"></button>`).join("") +
     sep + SIZES.map(s => `<button class="wb-sz" data-size="${s}" aria-label="Size ${s}" aria-pressed="${s === curW}"><i style="width:${s + 3}px;height:${s + 3}px"></i></button>`).join("");
-  if (t === "line" || t === "arrow") h += sep + ENDS.map(([v, l, ic]) => `<button class="wb-sz wb-opt" data-ends="${v}" aria-label="${l}" title="${l}" aria-pressed="${v === curE}">${ic}</button>`).join("");
-  if (["pen", "line", "arrow", "rect", "ell"].includes(t)) h += sep + DASHES.map(([v, l, ic]) => `<button class="wb-sz wb-opt" data-dash="${v}" aria-label="${l}" title="${l}" aria-pressed="${v === curD}">${ic}</button>`).join("");
-  if (it) h += sep + `<button class="wb-sz wb-opt wb-del" data-del aria-label="Delete" title="Delete (Del)">${svg("trash2")}</button>`;
+  if (showEnds) h += sep + ENDS.map(([v, l, ic]) => `<button class="wb-sz wb-opt" data-ends="${v}" aria-label="${l}" title="${l}" aria-pressed="${v === curE}">${ic}</button>`).join("");
+  if (showDash) h += sep + DASHES.map(([v, l, ic]) => `<button class="wb-sz wb-opt" data-dash="${v}" aria-label="${l}" title="${l}" aria-pressed="${v === curD}">${ic}</button>`).join("");
+  if (it) h += sep + `<button class="wb-sz wb-opt" data-dup aria-label="Duplicate" title="Duplicate (Ctrl+D)">${svg("copy")}</button><button class="wb-sz wb-opt wb-del" data-del aria-label="${list.length > 1 ? `Delete ${list.length}` : "Delete"}" title="Delete (Del)">${svg("trash2")}</button>`;
   el.innerHTML = h; el.hidden = false;
 }
 function setTool(t) {
   commitText(); tool = t;
-  if (t !== "select") sel = null;
+  if (t !== "select") { sel = null; picked = []; }
   root.querySelectorAll("[data-tool]").forEach(b => b.setAttribute("aria-pressed", b.dataset.tool === t));
   stage.className = "wb-stage " + (t === "hand" ? "pan" : t === "eraser" ? "erase" : t === "text" ? "text" : t === "select" ? "select" : "draw");
   drawStyles(); req();
@@ -540,6 +648,8 @@ function moreMenu(anchor) {
     <div class="wb-msep"></div>
     <button class="wb-mi" data-act="fit">${svg("maximize2")}<span class="grow">Fit drawing to screen</span></button>
     <button class="wb-mi" data-act="export">${svg("imageDown")}<span class="grow">Save as image</span></button>
+    ${lsGet("wb-pen") === "1" ? `<button class="wb-mi" data-act="pen">${svg("pencil")}<span class="grow">Fingers draw too</span>${svg("check").replace("<svg", `<svg style="visibility:${lsGet("wb-fingers") === "1" ? "visible" : "hidden"}"`)}</button>` : ""}
+    <button class="wb-mi" data-act="keys">${svg("circleHelp")}<span class="grow">Shortcuts and gestures</span></button>
     <button class="wb-mi danger" data-act="clear">${svg("brushCleaning")}<span class="grow">Clear board</span></button>`;
   openMenu(anchor, html, m => {
     m.querySelectorAll("[data-bg]").forEach(b => b.onclick = () => {
@@ -548,6 +658,23 @@ function moreMenu(anchor) {
     });
     m.querySelector('[data-act="fit"]').onclick = () => { closeMenu(); fit(); };
     m.querySelector('[data-act="export"]').onclick = () => { closeMenu(); exportImage(); };
+    const pb = m.querySelector('[data-act="pen"]');
+    if (pb) pb.onclick = () => {
+      const on = lsGet("wb-fingers") !== "1"; lsSet("wb-fingers", on ? "1" : "0"); penSeen = !on; if (!on) lsSet("wb-pen", "1");
+      closeMenu(); ctx0.toast(on ? "Fingers draw now. Two fingers still move the board." : "Only the pen draws. Fingers move the board.");
+    };
+    m.querySelector('[data-act="keys"]').onclick = () => {
+      const row = (k, v) => `<div class="wb-key"><span>${v}</span><kbd>${k}</kbd></div>`;
+      const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+      m.innerHTML = `<div class="wb-mlabel">Touch and pen</div>
+        ${row("2 fingers", "Move and zoom")}${row("2-finger tap", "Undo")}${row("3-finger tap", "Redo")}${row("Pen eraser end", "Erase")}
+        <div class="wb-mlabel">Select tool</div>
+        ${row("Drag empty space", "Select everything in a box")}${touchOnly ? "" : row("Shift + click", "Add or remove one")}${row("Square handle", "Resize")}${row("Tap text again", "Retype it")}
+        ${touchOnly ? "" : `<div class="wb-mlabel">Keyboard</div>
+        ${row("V S P H E", "Move, select, pen, highlight, erase")}${row("L A R O T", "Line, arrow, box, circle, text")}
+        ${row("Ctrl Z / Ctrl Shift Z", "Undo / redo")}${row("Ctrl C X V D", "Copy, cut, paste, duplicate")}${row("Ctrl A", "Select all")}
+        ${row("Arrows", "Nudge (Shift: farther)")}${row("Del", "Delete")}${row("Space + drag", "Move the board")}${row("0", "Fit drawing")}${row("Shift", "Straight lines, squares, circles")}`}`;
+    };
     m.querySelector('[data-act="clear"]').onclick = () => {
       if (!board.strokes.length) { closeMenu(); ctx0.toast("This board is already empty."); return; }
       m.innerHTML = `<div class="wb-ask">Erase everything on “${esc(board.name)}”? Undo brings it back.</div>
@@ -602,7 +729,7 @@ const MARKUP = () => `
   <div class="wb-split">
   <div class="wb-stage draw" id="wb-stage">
     <canvas></canvas>
-    <div class="wb-hint" id="wb-hint">Draw anything<small>Pinch or Ctrl + scroll to zoom · Space + drag to move</small></div>
+    <div class="wb-hint" id="wb-hint">Draw anything<small id="wb-hint-s"></small></div>
     <div class="wb-zoom surface">
       <button class="icon-btn" id="wb-zout" aria-label="Zoom out">${svg("minus")}</button><span id="wb-zlvl">100%</span><button class="icon-btn" id="wb-zin" aria-label="Zoom in">${svg("plus")}</button>
     </div>
@@ -627,6 +754,10 @@ async function mount(el, ctx) {
   ctx0 = ctx; root = el; loadCss();
   el.innerHTML = MARKUP();
   stage = $("#wb-stage"); cv = stage.querySelector("canvas"); cx = cv.getContext("2d");
+  penSeen = lsGet("wb-pen") === "1" && lsGet("wb-fingers") !== "1";
+  $("#wb-hint-s").textContent = matchMedia("(pointer: coarse)").matches
+    ? "Two fingers move and zoom · two-finger tap undoes"
+    : "Ctrl + scroll to zoom · Space + drag to move · S to select";
 
   stage.addEventListener("pointerdown", onDown);
   stage.addEventListener("pointermove", onMove);
@@ -643,15 +774,19 @@ async function mount(el, ctx) {
   $("#wb-tools").addEventListener("click", e => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
   $("#wb-styles").addEventListener("click", e => {
     if (e.target.closest("[data-del]")) { delSel(); return; }
+    if (e.target.closest("[data-dup]")) { const l = picks(); if (l.length) { pastes = 0; pasteList(JSON.stringify(l)); } return; }
     const c = e.target.closest("[data-color]"), s = e.target.closest("[data-size]"), en = e.target.closest("[data-ends]"), d = e.target.closest("[data-dash]");
     if (!c && !s && !en && !d) return;
-    const it = tool === "select" && sel && board.strokes.includes(sel) ? sel : null;
-    if (it) {   // change the selected line, shape or text
+    const list = tool === "select" ? picks() : [];
+    if (list.length) {   // change everything selected
       snapshot();
-      if (c) it.c = c.dataset.color;
-      if (s) it.w = +s.dataset.size;
-      if (en) it.e = +en.dataset.ends;
-      if (d) { if (+d.dataset.dash) it.d = +d.dataset.dash; else delete it.d; }
+      const hlPal = list.every(x => x.t === "hl");
+      for (const it of list) {
+        if (c && (it.t === "hl") === hlPal) it.c = c.dataset.color;
+        if (s) it.w = +s.dataset.size;
+        if (en && (it.t === "line" || it.t === "arrow")) it.e = +en.dataset.ends;
+        if (d && it.t !== "hl" && it.t !== "text") { if (+d.dataset.dash) it.d = +d.dataset.dash; else delete it.d; }
+      }
       save(); req(); drawStyles(); return;
     }
     if (c) { if (tool === "hl") hlColor = c.dataset.color; else color = c.dataset.color; }
@@ -673,8 +808,10 @@ async function mount(el, ctx) {
   document.addEventListener("keydown", e => {
     if (!ctx0.isActive() || e.target.matches("input,textarea,select")) return;
     const k = e.key.toLowerCase();
-    if (k === "escape") { closeMenu(); if (sel) { sel = null; drawStyles(); req(); } return; }
-    if ((k === "delete" || k === "backspace") && tool === "select" && sel) { e.preventDefault(); delSel(); return; }
+    if (k === "escape") { closeMenu(); if (picked.length) pick([]); return; }
+    if ((k === "delete" || k === "backspace") && tool === "select" && picks().length) { e.preventDefault(); delSel(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && editKeys(k, e)) return;
+    if (tool === "select" && picks().length && k.startsWith("arrow")) { e.preventDefault(); nudge(k, e.shiftKey ? 10 : 1); return; }
     if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
